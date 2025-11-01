@@ -90,9 +90,6 @@ def create_model():
     except Exception:
         return _error_response("Malformed JSON payload.")
 
-    if not isinstance(payload, dict):
-        return _error_response("Payload must be a JSON object.")
-
     model_id_raw: Optional[str] = payload.get("model_id")
     if model_id_raw is not None:
         if not isinstance(model_id_raw, str) or not model_id_raw.strip():

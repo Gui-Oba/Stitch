@@ -1,3 +1,4 @@
+import copy
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
@@ -412,10 +413,57 @@ def save_trained_model(model_id: str):
         return _error_response("Payload must be a JSON object.")
 
     run_id = payload.get("run_id")
+    model_entry = store.get_model(model_id)
+
+    if run_id is None:
+        architecture = payload.get("architecture")
+        hyperparams = payload.get("hyperparams")
+
+        if not isinstance(architecture, dict):
+            return _error_response("`architecture` must be provided as an object.", status=422)
+        if not isinstance(hyperparams, dict):
+            return _error_response("`hyperparams` must be provided as an object.", status=422)
+
+        architecture_copy = copy.deepcopy(architecture)
+        hyperparams_copy = copy.deepcopy(hyperparams)
+
+        if model_entry is None:
+            model_entry = {
+                "model_id": model_id,
+                "name": None,
+                "description": None,
+                "architecture": architecture_copy,
+                "hyperparams": hyperparams_copy,
+                "created_at": _utcnow_iso(),
+                "trained": False,
+                "saved_model_path": None,
+                "last_trained_at": None,
+            }
+            store.add_model(model_id, model_entry)
+        else:
+            updates = {
+                "architecture": architecture_copy,
+                "hyperparams": hyperparams_copy,
+                "trained": False,
+                "saved_model_path": None,
+                "last_trained_at": None,
+            }
+            store.update_model(model_id, updates)
+            model_entry = store.get_model(model_id)
+
+        response = {
+            "model_id": model_id,
+            "trained": False,
+            "architecture": copy.deepcopy(model_entry.get("architecture", {})),
+            "hyperparams": copy.deepcopy(model_entry.get("hyperparams", {})),
+            "saved_model_path": model_entry.get("saved_model_path"),
+        }
+
+        return jsonify(response), 200
+
     if not isinstance(run_id, str) or not run_id:
         return _error_response("`run_id` is required.", status=400)
 
-    model_entry = store.get_model(model_id)
     if model_entry is None:
         return _error_response("Unknown model_id.", status=404)
 
@@ -443,10 +491,20 @@ def save_trained_model(model_id: str):
         },
     )
 
+    model_entry = store.get_model(model_id)
+
     response = {
         "model_id": model_id,
         "run_id": run_id,
         "saved_path": str(output_path),
+        "trained": True,
+        "saved_model_path": str(output_path),
+        "architecture": copy.deepcopy(model_entry.get("architecture", {}))
+        if model_entry
+        else None,
+        "hyperparams": copy.deepcopy(model_entry.get("hyperparams", {}))
+        if model_entry
+        else None,
     }
 
     return jsonify(response), 200
