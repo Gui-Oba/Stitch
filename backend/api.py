@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+import json
+import queue
 import threading
 import uuid
 import random
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 try:
     import torch
@@ -53,6 +55,7 @@ DATA_ROOT = "data"
 _store_lock = threading.Lock()
 _models = {}
 _runs = {}
+_run_event_queues = {}
 
 app = Flask(__name__)
 
@@ -312,7 +315,7 @@ def _configure_optimizer(optimizer_cfg, parameters):
     raise ValidationError(f"Unsupported optimizer `{opt_type}`.")
 
 
-def _train_with_torch(model, train_loader, val_loader, hyperparams):
+def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoint=None):
     device = torch.device("cpu")
     model.to(device)
 
@@ -369,18 +372,104 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams):
         val_accuracy = val_correct / max(1, val_total)
 
         if epoch % 100 == 0 or epoch == epochs:
-            metrics.append(
-                {
-                    "epoch": epoch,
-                    "train_loss": round(avg_train_loss, 4),
-                    "val_loss": round(avg_val_loss, 4),
-                    "train_accuracy": round(train_accuracy, 4),
-                    "val_accuracy": round(val_accuracy, 4),
-                }
-            )
+            metric_entry = {
+                "epoch": epoch,
+                "train_loss": round(avg_train_loss, 4),
+                "val_loss": round(avg_val_loss, 4),
+                "train_accuracy": round(train_accuracy, 4),
+                "val_accuracy": round(val_accuracy, 4),
+            }
+            metrics.append(metric_entry)
+            if on_checkpoint is not None:
+                on_checkpoint(metric_entry)
 
     test_accuracy = metrics[-1]["val_accuracy"] if metrics else 0.0
     return metrics, test_accuracy
+
+
+def _format_sse(event_name, data):
+    return f"event: {event_name}\ndata: {json.dumps(data)}\n\n"
+
+
+def _start_training_thread(run_id, architecture, hyperparams):
+    event_queue = queue.Queue()
+    with _store_lock:
+        _run_event_queues[run_id] = event_queue
+
+    def emit(event_name, data):
+        payload = dict(data)
+        payload.setdefault("run_id", run_id)
+        event_queue.put({"event": event_name, "data": payload})
+
+    def worker():
+        try:
+            model = _build_model(architecture)
+            train_loader, val_loader = _prepare_dataloaders(
+                hyperparams["batch_size"],
+                hyperparams["train_split"],
+                hyperparams["shuffle"],
+                hyperparams["max_samples"],
+                hyperparams["seed"],
+            )
+
+            captured_metrics = []
+
+            with _store_lock:
+                run_entry = _runs.get(run_id)
+                if run_entry is not None:
+                    run_entry["state"] = "running"
+
+            emit("state", {"state": "running"})
+
+            def on_checkpoint(metric):
+                metric_copy = dict(metric)
+                captured_metrics.append(metric_copy)
+                emit("metric", metric_copy)
+                with _store_lock:
+                    run_entry_inner = _runs.get(run_id)
+                    if run_entry_inner is not None:
+                        run_entry_inner["metrics"] = list(captured_metrics)
+                        run_entry_inner["epoch"] = metric_copy["epoch"]
+
+            metrics, test_accuracy = _train_with_torch(
+                model, train_loader, val_loader, hyperparams, on_checkpoint=on_checkpoint
+            )
+
+            with _store_lock:
+                run_entry = _runs.get(run_id)
+                if run_entry is not None:
+                    run_entry.update(
+                        {
+                            "state": "succeeded",
+                            "metrics": metrics,
+                            "test_accuracy": test_accuracy,
+                            "completed_at": _utcnow_iso(),
+                        }
+                    )
+
+            emit("state", {"state": "succeeded", "test_accuracy": test_accuracy})
+        except Exception as exc:
+            error_message = str(exc)
+            with _store_lock:
+                run_entry = _runs.get(run_id)
+                if run_entry is not None:
+                    run_entry.update(
+                        {
+                            "state": "failed",
+                            "error": error_message,
+                            "completed_at": _utcnow_iso(),
+                        }
+                    )
+            emit("state", {"state": "failed", "error": error_message})
+        finally:
+            event_queue.put(None)
+            with _store_lock:
+                _run_event_queues.pop(run_id, None)
+
+    # Emit initial queued state before the worker starts.
+    emit("state", {"state": "queued"})
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
 
 
 def _utcnow_iso():
@@ -417,16 +506,9 @@ def train_model():
     run_id = _generate_id("r")
     created_at = _utcnow_iso()
 
-    model = _build_model(architecture)
-    train_loader, val_loader = _prepare_dataloaders(
-        hyperparams["batch_size"],
-        hyperparams["train_split"],
-        hyperparams["shuffle"],
-        hyperparams["max_samples"],
-        hyperparams["seed"],
-    )
-
-    metrics, test_accuracy = _train_with_torch(model, train_loader, val_loader, hyperparams)
+    # Work with deep copies to avoid sharing references across threads.
+    architecture = json.loads(json.dumps(architecture))
+    hyperparams = json.loads(json.dumps(hyperparams))
 
     with _store_lock:
         _models[model_id] = {
@@ -438,24 +520,68 @@ def train_model():
         _runs[run_id] = {
             "run_id": run_id,
             "model_id": model_id,
-            "state": "succeeded",
+            "state": "queued",
             "epochs_total": hyperparams["epochs"],
-            "metrics": metrics,
-            "test_accuracy": test_accuracy,
-            "completed_at": _utcnow_iso(),
+            "metrics": [],
+            "test_accuracy": None,
+            "created_at": created_at,
+            "events_url": f"/api/runs/{run_id}/events",
+            "hyperparams": hyperparams,
         }
+
+    _start_training_thread(run_id, architecture, hyperparams)
 
     response = {
         "model_id": model_id,
         "run_id": run_id,
-        "status": "succeeded",
+        "status": "queued",
         "created_at": created_at,
         "epochs_total": hyperparams["epochs"],
-        "metrics": metrics,
-        "test_accuracy": test_accuracy,
+        "metrics": [],
+        "test_accuracy": None,
+        "events_url": f"/api/runs/{run_id}/events",
     }
 
-    return jsonify(response), 200
+    return jsonify(response), 202
+
+
+@app.route("/api/runs/<run_id>/events", methods=["GET"])
+def stream_run_events(run_id):
+    with _store_lock:
+        run = _runs.get(run_id)
+        event_queue = _run_event_queues.get(run_id)
+
+    if run is None:
+        return _error_response("Unknown run_id.", status=404)
+
+    def event_generator():
+        if event_queue is None:
+            for metric in run.get("metrics", []):
+                yield _format_sse("metric", {"run_id": run_id, **metric})
+            yield _format_sse(
+                "state",
+                {
+                    "run_id": run_id,
+                    "state": run.get("state"),
+                    "test_accuracy": run.get("test_accuracy"),
+                    "error": run.get("error"),
+                },
+            )
+            return
+
+        try:
+            while True:
+                try:
+                    item = event_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                if item is None:
+                    break
+                yield _format_sse(item["event"], item["data"])
+        except GeneratorExit:
+            pass
+
+    return Response(stream_with_context(event_generator()), mimetype="text/event-stream")
 
 
 if __name__ == "__main__":
