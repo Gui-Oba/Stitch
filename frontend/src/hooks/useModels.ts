@@ -21,7 +21,7 @@ export type StoredModel = {
 }
 
 export function SaveModel() {
-  return useMutation({
+  return useMutation<unknown, Error, { name: string }>({
     mutationFn: (name) => {
       return axios.post('/todos', name)
     },
