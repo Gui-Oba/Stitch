@@ -16,6 +16,7 @@ import { DenseLayerNode } from './components/nodes/DenseLayerNode';
 import { OutputLayerNode } from './components/nodes/OutputLayerNode';
 import { HyperparamsPanel, type Hyperparams, DEFAULT_HYPERPARAMS } from './components/HyperparamsPanel';
 import { validateConnection, notifyConnectionError, hasIncomingConnection } from './lib/shapeInference';
+import { TrainingMetricsSlideOver, type MetricData } from './components/TrainingMetricsSlideOver';
 
 const nodeTypes: NodeTypes = {
   input: InputLayerNode,
@@ -28,6 +29,10 @@ export default function App() {
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS);
   const [isTraining, setIsTraining] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false);
+  const [trainingMetrics, setTrainingMetrics] = useState<MetricData[]>([]);
+  const [trainingState, setTrainingState] = useState<'queued' | 'running' | 'succeeded' | 'failed' | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | undefined>(undefined);
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -144,6 +149,9 @@ export default function App() {
       console.log('📊 Hyperparameters:', hyperparams);
 
       setIsTraining(true);
+      setTrainingMetrics([]);
+      setTrainingState(null);
+      setMetricsSlideOverOpen(true);
 
       // POST to /api/train
       const response = await fetch('/api/train', {
@@ -165,6 +173,8 @@ export default function App() {
       const result = await response.json();
       const { run_id, events_url } = result;
 
+      setCurrentRunId(run_id);
+
       console.log('✅ Training job created:', result);
       toast.success('Training started!', {
         description: `Run ID: ${run_id}`,
@@ -180,11 +190,13 @@ export default function App() {
       eventSource.addEventListener('metric', (e) => {
         const data = JSON.parse(e.data);
         console.log('📈 Metric:', data);
+        setTrainingMetrics((prev) => [...prev, data as MetricData]);
       });
 
       eventSource.addEventListener('state', (e) => {
         const data = JSON.parse(e.data);
         console.log('🔄 State:', data);
+        setTrainingState(data.state);
 
         if (data.state === 'succeeded') {
           toast.success('Training completed!', {
@@ -236,11 +248,10 @@ export default function App() {
         <button
           onClick={handleRun}
           disabled={isTraining}
-          className={`absolute top-4 right-4 z-10 ${
-            isTraining
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-green-500 hover:bg-green-600 cursor-pointer'
-          } text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2`}
+          className={`absolute top-4 right-4 z-10 ${isTraining
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-green-500 hover:bg-green-600 cursor-pointer'
+            } text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2`}
         >
           {isTraining ? (
             <>
@@ -260,6 +271,19 @@ export default function App() {
           )}
         </button>
 
+        {/* Metrics Button (when training has metrics or completed) */}
+        {(trainingMetrics.length > 0 || trainingState !== null) && (
+          <button
+            onClick={() => setMetricsSlideOverOpen(true)}
+            className="absolute top-4 right-32 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+            </svg>
+            Metrics
+          </button>
+        )}
+
         <ReactFlow
           nodes={reactFlowNodes}
           edges={reactFlowEdges}
@@ -275,6 +299,15 @@ export default function App() {
           <Controls />
         </ReactFlow>
       </div>
+
+      <TrainingMetricsSlideOver
+        open={metricsSlideOverOpen}
+        onOpenChange={setMetricsSlideOverOpen}
+        isTraining={isTraining}
+        metrics={trainingMetrics}
+        currentState={trainingState}
+        runId={currentRunId}
+      />
     </>
   );
 }

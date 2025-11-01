@@ -244,6 +244,8 @@ def _configure_optimizer(optimizer_cfg, parameters):
 
 
 def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoint=None):
+    import time
+
     device = torch.device("cpu")
     model.to(device)
 
@@ -257,7 +259,10 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
     epochs = hyperparams["epochs"]
     metrics = []
 
+    training_start_time = time.time()
+
     for epoch in range(1, epochs + 1):
+        epoch_start_time = time.time()
         model.train()
         train_loss = 0.0
         train_correct = 0
@@ -299,17 +304,31 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
         avg_val_loss = val_loss / max(1, val_total)
         val_accuracy = val_correct / max(1, val_total)
 
-        if epoch % 100 == 0 or epoch == epochs:
-            metric_entry = {
-                "epoch": epoch,
-                "train_loss": round(avg_train_loss, 4),
-                "val_loss": round(avg_val_loss, 4),
-                "train_accuracy": round(train_accuracy, 4),
-                "val_accuracy": round(val_accuracy, 4),
-            }
-            metrics.append(metric_entry)
-            if on_checkpoint is not None:
-                on_checkpoint(metric_entry)
+        # Calculate timing and progress metrics
+        epoch_time = time.time() - epoch_start_time
+        elapsed_time = time.time() - training_start_time
+        avg_epoch_time = elapsed_time / epoch
+        eta_seconds = avg_epoch_time * (epochs - epoch)
+        progress = epoch / epochs
+
+        # Get learning rate
+        current_lr = optimizer.param_groups[0]['lr']
+
+        metric_entry = {
+            "epoch": epoch,
+            "train_loss": round(avg_train_loss, 4),
+            "val_loss": round(avg_val_loss, 4),
+            "train_accuracy": round(train_accuracy, 4),
+            "val_accuracy": round(val_accuracy, 4),
+            "learning_rate": round(current_lr, 6),
+            "epoch_time": round(epoch_time, 2),
+            "samples_per_sec": round(train_total / epoch_time, 1) if epoch_time > 0 else 0,
+            "progress": round(progress, 4),
+            "eta_seconds": round(eta_seconds, 1),
+        }
+        metrics.append(metric_entry)
+        if on_checkpoint is not None:
+            on_checkpoint(metric_entry)
 
     test_accuracy = metrics[-1]["val_accuracy"] if metrics else 0.0
     return metrics, test_accuracy
