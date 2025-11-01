@@ -18,6 +18,11 @@ import { validateConnection, notifyConnectionError, hasIncomingConnection } from
 import { TrainingMetricsSlideOver } from '@/components/TrainingMetricsSlideOver'
 import { useTrainingMetrics } from '@/hooks/useTraining'
 import { SaveModel } from '@/hooks/useModels'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { DialogClose } from '@radix-ui/react-dialog'
+
 
 
 const nodeTypes: NodeTypes = {
@@ -30,6 +35,7 @@ export default function Playground() {
   const { layers, edges, addLayer, addEdge, removeEdge } = useGraphStore()
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
   const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false)
+  const [modelName, setModelName] = useState('')
   const mutation = SaveModel();
   const {
     metrics,
@@ -40,8 +46,13 @@ export default function Playground() {
   } = useTrainingMetrics()
 
   function save() {
-    // mutation.mutate({})
-    
+    console.log('works here!@')
+    if (modelName.trim().length > 0) {
+      mutation.mutate({name: modelName.trim()})
+      setModelName('')
+    } else {
+      console.log('Model name is required')
+    }
   }
 
   // Convert store state to ReactFlow format with auto-layout
@@ -173,12 +184,34 @@ export default function Playground() {
         {/* Hyperparameters Panel */}
         <HyperparamsPanel onParamsChange={setHyperparams} />
 
-        <button
-          onClick={() => save()}
-          className="absolute top-4 right-4 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2 cursor-pointer"
-        >
-          Save
-        </button>
+        <Dialog>
+          <DialogTrigger asChild>
+            <button
+              className="absolute top-4 right-4 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2 cursor-pointer"
+            >
+              Save
+            </button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Save Model</DialogTitle>
+              <div className="mt-4">
+                  <Input
+                    name="modelName"
+                    placeholder="Model Name"
+                    className="w-full"
+                    value={modelName}
+                    onChange={(event) => setModelName(event.target.value)}
+                  />
+                  <DialogClose asChild>
+                    <Button className="mt-4 w-full" onClick={() => save()}>Save</Button>
+                  </DialogClose>
+              </div>
+
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>
+
 
         {/* Floating Train Button */}
         <button
@@ -243,6 +276,8 @@ export default function Playground() {
         currentState={currentState}
         runId={runId}
       />
+
+
     </>
   )
 }
