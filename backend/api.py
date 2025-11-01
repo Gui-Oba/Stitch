@@ -7,19 +7,9 @@ import random
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 
-try:
-    import torch
-    from torch import nn
-    from torch.utils.data import DataLoader, TensorDataset, random_split, Subset
-except ModuleNotFoundError as exc:
-    raise RuntimeError("PyTorch is required to run the training service.") from exc
-
-try:
-    from torchvision import datasets, transforms
-
-    _HAS_TORCHVISION = True
-except ModuleNotFoundError:
-    _HAS_TORCHVISION = False
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset, random_split
 
 """
 Expected request payload:
@@ -45,11 +35,17 @@ Expected request payload:
 }
 """
 
-ALLOWED_LAYER_TYPES = {"linear", "relu", "sigmoid", "tanh", "softmax"}
-ALLOWED_LOSSES = {"cross_entropy"}
-ALLOWED_OPTIMIZERS = {"sgd", "adam"}
 MNIST_INPUT_SIZE = 28 * 28
-DATA_ROOT = "data"
+DEFAULT_HYPERPARAMS = {
+    "epochs": 5,
+    "batch_size": 64,
+    "optimizer": {"type": "sgd", "lr": 0.1, "momentum": 0.0},
+    "loss": "cross_entropy",
+    "seed": None,
+    "train_split": 0.9,
+    "shuffle": True,
+    "max_samples": 4096,
+}
 
 # In-memory store for models and runs to keep the example self-contained.
 _store_lock = threading.Lock()
@@ -60,72 +56,44 @@ _run_event_queues = {}
 app = Flask(__name__)
 
 
-class ValidationError(ValueError):
-    """Raised when incoming payload fails validation rules."""
-
-
 def _generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
 def _validate_architecture(payload):
     if not isinstance(payload, dict):
-        raise ValidationError("`architecture` must be an object.")
+        raise ValueError("`architecture` must be an object.")
 
-    if "input_size" not in payload:
-        raise ValidationError("`architecture.input_size` is required.")
-    if "layers" not in payload:
-        raise ValidationError("`architecture.layers` is required.")
+    input_size = payload.get("input_size", MNIST_INPUT_SIZE)
+    layers = payload.get("layers") or []
+    if not layers:
+        raise ValueError("`architecture.layers` must contain at least one layer.")
 
-    input_size = payload["input_size"]
-    if not isinstance(input_size, int) or input_size <= 0:
-        raise ValidationError("`architecture.input_size` must be a positive integer.")
-    if input_size != MNIST_INPUT_SIZE:
-        raise ValidationError("`architecture.input_size` must be 784 for MNIST images.")
-
-    layers = payload["layers"]
-    if not isinstance(layers, list) or not layers:
-        raise ValidationError("`architecture.layers` must be a non-empty list.")
+    try:
+        input_size = int(input_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("`architecture.input_size` must be convertible to int.") from exc
 
     sanitized_layers = []
-    prev_dim = input_size
-    last_linear_out = None
+    prev_out = input_size
 
-    for idx, layer in enumerate(layers):
+    for layer in layers:
         if not isinstance(layer, dict):
-            raise ValidationError(f"Layer {idx} must be an object.")
+            raise ValueError("Each layer must be described by an object.")
 
-        layer_type = layer.get("type")
-        if layer_type not in ALLOWED_LAYER_TYPES:
-            raise ValidationError(f"Layer {idx} has unsupported type `{layer_type}`.")
-
+        layer_type = str(layer.get("type", "linear")).lower()
         if layer_type == "linear":
-            in_dim = layer.get("in")
-            out_dim = layer.get("out")
-            if not isinstance(in_dim, int) or not isinstance(out_dim, int):
-                raise ValidationError(f"`linear` layer {idx} must define integer `in` and `out`.")
-            if in_dim <= 0 or out_dim <= 0:
-                raise ValidationError(f"`linear` layer {idx} must have positive `in` and `out`.")
-            if in_dim != prev_dim:
-                raise ValidationError(
-                    f"`linear` layer {idx} expected `in={prev_dim}` but received `in={in_dim}`."
-                )
-            prev_dim = out_dim
-            last_linear_out = out_dim
+            in_dim = layer.get("in", prev_out)
+            out_dim = layer.get("out", in_dim)
+            try:
+                in_dim = int(in_dim)
+                out_dim = int(out_dim)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Linear layer dimensions must be integers.") from exc
             sanitized_layers.append({"type": "linear", "in": in_dim, "out": out_dim})
+            prev_out = out_dim
         else:
-            if layer_type == "softmax" and idx != len(layers) - 1:
-                raise ValidationError("`softmax` layers are only allowed at the final position.")
             sanitized_layers.append({"type": layer_type})
-
-    if last_linear_out is None:
-        raise ValidationError("Architecture must include at least one `linear` layer.")
-
-    if last_linear_out != 10:
-        raise ValidationError("Final linear layer must produce 10 outputs for MNIST.")
-
-    if layers[-1]["type"] == "softmax" and prev_dim != 10:
-        raise ValidationError("`softmax` output must operate on 10 logits.")
 
     return {"input_size": input_size, "layers": sanitized_layers}
 
@@ -134,98 +102,77 @@ def _validate_hyperparams(payload):
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
-        raise ValidationError("`hyperparams` must be an object.")
+        raise ValueError("`hyperparams` must be an object.")
 
-    result = {
-        "epochs": 5,
-        "batch_size": 64,
-        "optimizer": {"type": "sgd", "lr": 0.1, "momentum": 0.0},
-        "loss": "cross_entropy",
-        "seed": None,
-        "train_split": 0.9,
-        "shuffle": True,
-        "max_samples": 4096,
-    }
+    result = json.loads(json.dumps(DEFAULT_HYPERPARAMS))
 
     if "epochs" in payload:
-        epochs = payload["epochs"]
-        if not isinstance(epochs, int) or epochs <= 0:
-            raise ValidationError("`hyperparams.epochs` must be a positive integer.")
-        if epochs > 2000:
-            raise ValidationError("`hyperparams.epochs` must be <= 2000 to protect server load.")
-        result["epochs"] = epochs
+        try:
+            result["epochs"] = int(payload["epochs"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("`hyperparams.epochs` must be an integer.") from exc
 
     if "batch_size" in payload:
-        batch_size = payload["batch_size"]
-        if not isinstance(batch_size, int) or batch_size <= 0:
-            raise ValidationError("`hyperparams.batch_size` must be a positive integer.")
-        result["batch_size"] = batch_size
+        try:
+            result["batch_size"] = int(payload["batch_size"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("`hyperparams.batch_size` must be an integer.") from exc
 
     if "train_split" in payload:
-        train_split = payload["train_split"]
-        if not isinstance(train_split, (float, int)) or not (0 < float(train_split) < 1):
-            raise ValidationError("`hyperparams.train_split` must be between 0 and 1.")
-        result["train_split"] = float(train_split)
+        try:
+            result["train_split"] = float(payload["train_split"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("`hyperparams.train_split` must be numeric.") from exc
 
     if "shuffle" in payload:
-        shuffle = payload["shuffle"]
-        if not isinstance(shuffle, bool):
-            raise ValidationError("`hyperparams.shuffle` must be a boolean.")
-        result["shuffle"] = shuffle
+        result["shuffle"] = bool(payload["shuffle"])
 
     if "loss" in payload:
-        loss = payload["loss"]
-        if not isinstance(loss, str) or loss.lower() not in ALLOWED_LOSSES:
-            raise ValidationError(f"`hyperparams.loss` must be one of {sorted(ALLOWED_LOSSES)}.")
-        result["loss"] = loss.lower()
+        result["loss"] = str(payload["loss"])
 
     if "seed" in payload:
         seed = payload["seed"]
-        if seed is not None and not isinstance(seed, int):
-            raise ValidationError("`hyperparams.seed` must be an integer or null.")
-        result["seed"] = seed
+        if seed is None:
+            result["seed"] = None
+        else:
+            try:
+                result["seed"] = int(seed)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("`hyperparams.seed` must be integer or null.") from exc
 
     if "max_samples" in payload:
-        max_samples = payload["max_samples"]
-        if not isinstance(max_samples, int) or max_samples <= 0:
-            raise ValidationError("`hyperparams.max_samples` must be a positive integer.")
-        result["max_samples"] = max_samples
+        try:
+            result["max_samples"] = int(payload["max_samples"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("`hyperparams.max_samples` must be an integer.") from exc
 
     optimizer = payload.get("optimizer")
-    if optimizer is not None:
-        if not isinstance(optimizer, dict):
-            raise ValidationError("`hyperparams.optimizer` must be an object.")
-        opt_type = optimizer.get("type")
-        if not isinstance(opt_type, str):
-            raise ValidationError("`hyperparams.optimizer.type` is required.")
-        opt_type = opt_type.lower()
-        if opt_type not in ALLOWED_OPTIMIZERS:
-            raise ValidationError(f"`hyperparams.optimizer.type` must be one of {sorted(ALLOWED_OPTIMIZERS)}.")
-        sanitized_optimizer = {"type": opt_type}
+    if isinstance(optimizer, dict):
+        merged_optimizer = dict(DEFAULT_HYPERPARAMS["optimizer"])
+        for key, value in optimizer.items():
+            merged_optimizer[key] = value
+        result["optimizer"] = merged_optimizer
 
-        lr = optimizer.get("lr", result["optimizer"].get("lr"))
-        if lr is not None:
-            if not isinstance(lr, (int, float)) or lr <= 0:
-                raise ValidationError("`hyperparams.optimizer.lr` must be a positive number.")
-            sanitized_optimizer["lr"] = float(lr)
-
-        if opt_type == "sgd":
-            momentum = optimizer.get("momentum", result["optimizer"].get("momentum", 0.0))
-            if not isinstance(momentum, (int, float)) or not (0 <= momentum < 1):
-                raise ValidationError("`hyperparams.optimizer.momentum` must be in [0, 1) for SGD.")
-            sanitized_optimizer["momentum"] = float(momentum)
-        elif opt_type == "adam":
-            beta1 = optimizer.get("beta1", 0.9)
-            beta2 = optimizer.get("beta2", 0.999)
-            eps = optimizer.get("eps", 1e-8)
-            for name, value in [("beta1", beta1), ("beta2", beta2), ("eps", eps)]:
-                if not isinstance(value, (int, float)) or value <= 0:
-                    raise ValidationError(f"`hyperparams.optimizer.{name}` must be a positive number.")
-            sanitized_optimizer["beta1"] = float(beta1)
-            sanitized_optimizer["beta2"] = float(beta2)
-            sanitized_optimizer["eps"] = float(eps)
-
-        result["optimizer"] = sanitized_optimizer
+    opt_cfg = result["optimizer"]
+    opt_cfg["type"] = str(opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])).lower()
+    if "lr" in opt_cfg:
+        try:
+            opt_cfg["lr"] = float(opt_cfg["lr"])
+        except (TypeError, ValueError):
+            opt_cfg["lr"] = float(DEFAULT_HYPERPARAMS["optimizer"]["lr"])
+    if opt_cfg["type"] == "sgd":
+        if "momentum" in opt_cfg:
+            try:
+                opt_cfg["momentum"] = float(opt_cfg["momentum"])
+            except (TypeError, ValueError):
+                opt_cfg["momentum"] = float(DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0))
+    elif opt_cfg["type"] == "adam":
+        for key, fallback in [("beta1", 0.9), ("beta2", 0.999), ("eps", 1e-8)]:
+            if key in opt_cfg:
+                try:
+                    opt_cfg[key] = float(opt_cfg[key])
+                except (TypeError, ValueError):
+                    opt_cfg[key] = float(fallback)
 
     return result
 
@@ -233,7 +180,7 @@ def _validate_hyperparams(payload):
 def _build_model(architecture):
     layers = []
     for layer_spec in architecture["layers"]:
-        layer_type = layer_spec["type"]
+        layer_type = str(layer_spec["type"]).lower()
         if layer_type == "linear":
             layers.append(nn.Linear(layer_spec["in"], layer_spec["out"]))
         elif layer_type == "relu":
@@ -245,14 +192,14 @@ def _build_model(architecture):
         elif layer_type == "softmax":
             layers.append(nn.Softmax(dim=1))
         else:
-            raise ValidationError(f"Unsupported layer type `{layer_type}`.")
+            raise ValueError(f"Unsupported layer type `{layer_type}`.")
     return nn.Sequential(*layers)
 
 
 def _synthetic_dataset(size, input_size, seed):
-    generator = None
+    generator = torch.Generator()
     if seed is not None:
-        generator = torch.Generator().manual_seed(seed)
+        generator.manual_seed(seed)
 
     data = torch.rand(size, input_size, generator=generator)
     labels = torch.randint(0, 10, (size,), generator=generator)
@@ -260,59 +207,40 @@ def _synthetic_dataset(size, input_size, seed):
 
 
 def _prepare_dataloaders(batch_size, train_split, shuffle, max_samples, seed):
-    if _HAS_TORCHVISION:
-        transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-        )
-        try:
-            dataset = datasets.MNIST(
-                root=DATA_ROOT, train=True, download=True, transform=transform
-            )
-        except Exception:
-            dataset = _synthetic_dataset(max_samples, MNIST_INPUT_SIZE, seed)
-    else:
-        dataset = _synthetic_dataset(max_samples, MNIST_INPUT_SIZE, seed)
-
-    if max_samples and len(dataset) > max_samples:
-        indices = list(range(len(dataset)))
-        if seed is not None:
-            random.seed(seed)
-        random.shuffle(indices)
-        dataset = Subset(dataset, indices[:max_samples])
+    total_samples = max(max_samples or DEFAULT_HYPERPARAMS["max_samples"], batch_size * 2)
+    total_samples = max(2, total_samples)
+    dataset = _synthetic_dataset(total_samples, MNIST_INPUT_SIZE, seed)
 
     train_len = max(1, int(len(dataset) * train_split))
-    val_len = len(dataset) - train_len
-    if val_len == 0:
-        val_len = 1
+    if train_len >= len(dataset):
         train_len = len(dataset) - 1
+    val_len = max(1, len(dataset) - train_len)
 
     generator = torch.Generator()
     if seed is not None:
         generator.manual_seed(seed)
 
-    train_dataset, val_dataset = random_split(
-        dataset, [train_len, val_len], generator=generator
-    )
+    train_dataset, val_dataset = random_split(dataset, [train_len, val_len], generator=generator)
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=shuffle, generator=generator
     )
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, generator=generator)
     return train_loader, val_loader
 
 
 def _configure_optimizer(optimizer_cfg, parameters):
-    opt_type = optimizer_cfg["type"]
-    lr = optimizer_cfg.get("lr", 0.001)
+    opt_type = str(optimizer_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])).lower()
+    lr = float(optimizer_cfg.get("lr", DEFAULT_HYPERPARAMS["optimizer"]["lr"]))
     if opt_type == "sgd":
-        momentum = optimizer_cfg.get("momentum", 0.0)
+        momentum = float(optimizer_cfg.get("momentum", DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)))
         return torch.optim.SGD(parameters, lr=lr, momentum=momentum)
     if opt_type == "adam":
-        beta1 = optimizer_cfg.get("beta1", 0.9)
-        beta2 = optimizer_cfg.get("beta2", 0.999)
-        eps = optimizer_cfg.get("eps", 1e-8)
+        beta1 = float(optimizer_cfg.get("beta1", 0.9))
+        beta2 = float(optimizer_cfg.get("beta2", 0.999))
+        eps = float(optimizer_cfg.get("eps", 1e-8))
         return torch.optim.Adam(parameters, lr=lr, betas=(beta1, beta2), eps=eps)
-    raise ValidationError(f"Unsupported optimizer `{opt_type}`.")
+    raise ValueError(f"Unsupported optimizer `{opt_type}`.")
 
 
 def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoint=None):
@@ -435,6 +363,11 @@ def _start_training_thread(run_id, architecture, hyperparams):
                 model, train_loader, val_loader, hyperparams, on_checkpoint=on_checkpoint
             )
 
+            state_dict_cpu = {
+                key: tensor.detach().cpu().clone()
+                for key, tensor in model.state_dict().items()
+            }
+
             with _store_lock:
                 run_entry = _runs.get(run_id)
                 if run_entry is not None:
@@ -444,6 +377,7 @@ def _start_training_thread(run_id, architecture, hyperparams):
                             "metrics": metrics,
                             "test_accuracy": test_accuracy,
                             "completed_at": _utcnow_iso(),
+                            "state_dict": state_dict_cpu,
                         }
                     )
 
@@ -480,6 +414,19 @@ def _error_response(message, status=400):
     return jsonify({"error": message}), status
 
 
+def _tensor_from_pixels(pixels):
+    if not isinstance(pixels, (list, tuple)):
+        raise ValueError("`pixels` must be a list of numbers.")
+    if len(pixels) != MNIST_INPUT_SIZE:
+        raise ValueError(f"`pixels` must contain exactly {MNIST_INPUT_SIZE} values.")
+    try:
+        flattened = [float(value) for value in pixels]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("`pixels` must be numeric.") from exc
+    tensor = torch.tensor(flattened, dtype=torch.float32).view(1, -1)
+    return tensor
+
+
 @app.route("/api/train", methods=["POST"])
 def train_model():
     if not request.is_json:
@@ -499,7 +446,7 @@ def train_model():
     try:
         architecture = _validate_architecture(architecture_raw)
         hyperparams = _validate_hyperparams(hyperparams_raw)
-    except ValidationError as exc:
+    except ValueError as exc:
         return _error_response(str(exc))
 
     model_id = _generate_id("m")
@@ -545,6 +492,66 @@ def train_model():
     return jsonify(response), 202
 
 
+@app.route("/api/infer", methods=["POST"])
+def infer_single_pixel_map():
+    if not request.is_json:
+        return _error_response("Expected JSON payload.", status=415)
+
+    try:
+        payload = request.get_json(force=True)
+    except Exception:
+        return _error_response("Malformed JSON payload.")
+
+    if not isinstance(payload, dict):
+        return _error_response("Payload must be a JSON object.")
+
+    run_id = payload.get("run_id")
+    pixels = payload.get("pixels")
+
+    if not isinstance(run_id, str) or not run_id:
+        return _error_response("`run_id` is required.", status=400)
+
+    try:
+        input_tensor = _tensor_from_pixels(pixels)
+    except ValueError as exc:
+        return _error_response(str(exc), status=422)
+
+    with _store_lock:
+        run_entry = _runs.get(run_id)
+        if run_entry is None:
+            return _error_response("Unknown run_id.", status=404)
+        state = run_entry.get("state")
+        state_dict = run_entry.get("state_dict")
+        model_id = run_entry.get("model_id")
+
+        model_entry = _models.get(model_id) if model_id else None
+
+    if state_dict is None or state != "succeeded":
+        return _error_response("Run is not ready for inference.", status=409)
+    if model_entry is None:
+        return _error_response("Associated model not found.", status=404)
+
+    architecture = model_entry["architecture"]
+    model = _build_model(architecture)
+    model.load_state_dict({key: tensor.clone() for key, tensor in state_dict.items()})
+    model.eval()
+
+    with torch.no_grad():
+        logits = model(input_tensor)
+        if logits.dim() == 1:
+            logits = logits.unsqueeze(0)
+        probabilities = torch.softmax(logits, dim=1).squeeze(0)
+
+    predicted_label = int(probabilities.argmax().item())
+    response = {
+        "run_id": run_id,
+        "label": predicted_label,
+        "probabilities": [float(p) for p in probabilities.tolist()],
+    }
+
+    return jsonify(response), 200
+
+
 @app.route("/api/runs/<run_id>/events", methods=["GET"])
 def stream_run_events(run_id):
     with _store_lock:
@@ -585,4 +592,4 @@ def stream_run_events(run_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=8080)
