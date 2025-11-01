@@ -28,6 +28,7 @@ export interface DenseLayer extends Layer {
   params: {
     units: number;
     activation: ActivationType;
+    use_bias?: boolean;
   };
 }
 
@@ -60,7 +61,8 @@ export function formatShape(shape?: TensorShape): string {
 export function calculateParams(layer: AnyLayer, inputShape?: TensorShape): number {
   if (layer.kind === 'Dense' && inputShape?.type === 'vector') {
     const weights = inputShape.size * layer.params.units;
-    const bias = layer.params.use_bias ? layer.params.units : 0;
+    const useBias = layer.params.use_bias ?? true;
+    const bias = useBias ? layer.params.units : 0;
     return weights + bias;
   }
   return 0;
