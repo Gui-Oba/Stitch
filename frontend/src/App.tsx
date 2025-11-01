@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -10,11 +10,11 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toast, Toaster } from "sonner"
-import { useGraphStore } from './store/graphStore';
+import { useGraphStore, graphToArchitecture } from './store/graphStore';
 import { InputLayerNode } from './components/nodes/InputLayerNode';
 import { DenseLayerNode } from './components/nodes/DenseLayerNode';
 import { OutputLayerNode } from './components/nodes/OutputLayerNode';
-import { HyperparamsPanel } from './components/HyperparamsPanel';
+import { HyperparamsPanel, type Hyperparams, DEFAULT_HYPERPARAMS } from './components/HyperparamsPanel';
 import { validateConnection, notifyConnectionError, hasIncomingConnection } from './lib/shapeInference';
 
 const nodeTypes: NodeTypes = {
@@ -25,6 +25,9 @@ const nodeTypes: NodeTypes = {
 
 export default function App() {
   const { layers, edges, addLayer, addEdge, removeEdge } = useGraphStore();
+  const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS);
+  const [isTraining, setIsTraining] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -127,10 +130,99 @@ export default function App() {
     addEdge({ id: 'dense-2-output-1', source: 'dense-2', target: 'output-1' });
   }, [addLayer, addEdge]);
 
-  const handleRun = useCallback(() => {
-    toast.success('Training started!', {
-      description: 'Mock inference - backend not connected yet',
-    });
+  const handleRun = useCallback(async () => {
+    if (isTraining) {
+      toast.info('Training already in progress');
+      return;
+    }
+
+    try {
+      // Convert graph to backend architecture format
+      const architecture = graphToArchitecture(layers, edges);
+
+      console.log('🚀 Starting training with architecture:', architecture);
+      console.log('📊 Hyperparameters:', hyperparams);
+
+      setIsTraining(true);
+
+      // POST to /api/train
+      const response = await fetch('/api/train', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          architecture,
+          hyperparams,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Training request failed');
+      }
+
+      const result = await response.json();
+      const { run_id, events_url } = result;
+
+      console.log('✅ Training job created:', result);
+      toast.success('Training started!', {
+        description: `Run ID: ${run_id}`,
+      });
+
+      // Connect to SSE stream
+      const eventsEndpoint = events_url;
+      console.log('🔌 Connecting to event stream:', eventsEndpoint);
+
+      const eventSource = new EventSource(eventsEndpoint);
+      eventSourceRef.current = eventSource;
+
+      eventSource.addEventListener('metric', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('📈 Metric:', data);
+      });
+
+      eventSource.addEventListener('state', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('🔄 State:', data);
+
+        if (data.state === 'succeeded') {
+          toast.success('Training completed!', {
+            description: `Test accuracy: ${(data.test_accuracy * 100).toFixed(2)}%`,
+          });
+          eventSource.close();
+          setIsTraining(false);
+        } else if (data.state === 'failed') {
+          toast.error('Training failed', {
+            description: data.error || 'Unknown error',
+          });
+          eventSource.close();
+          setIsTraining(false);
+        }
+      });
+
+      eventSource.onerror = (error) => {
+        console.error('❌ EventSource error:', error);
+        eventSource.close();
+        setIsTraining(false);
+      };
+
+    } catch (error) {
+      console.error('❌ Training error:', error);
+      toast.error('Failed to start training', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+      setIsTraining(false);
+    }
+  }, [layers, edges, hyperparams, isTraining]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
   }, []);
 
   return (
@@ -138,17 +230,34 @@ export default function App() {
       <Toaster position="top-right" />
       <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
         {/* Hyperparameters Panel */}
-        <HyperparamsPanel />
+        <HyperparamsPanel onParamsChange={setHyperparams} />
 
         {/* Floating Train Button */}
         <button
           onClick={handleRun}
-          className="absolute top-4 right-4 z-10 bg-green-500 hover:bg-green-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2 cursor-pointer"
+          disabled={isTraining}
+          className={`absolute top-4 right-4 z-10 ${
+            isTraining
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-green-500 hover:bg-green-600 cursor-pointer'
+          } text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2`}
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-          </svg>
-          Train
+          {isTraining ? (
+            <>
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Training...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+              </svg>
+              Train
+            </>
+          )}
         </button>
 
         <ReactFlow

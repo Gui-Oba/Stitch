@@ -144,3 +144,74 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     };
   })
 }));
+
+// Convert graph to backend architecture format
+export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: GraphEdge[]) {
+  // Build adjacency map for graph traversal
+  const adjacency = new Map<string, string>();
+  edges.forEach(edge => {
+    adjacency.set(edge.target, edge.source);
+  });
+
+  // Find input layer (no incoming edges)
+  const inputLayer = Object.values(layers).find(
+    layer => layer.kind === 'Input' && !edges.some(e => e.target === layer.id)
+  );
+
+  if (!inputLayer || inputLayer.kind !== 'Input') {
+    throw new Error('No input layer found');
+  }
+
+  const input_size = inputLayer.params.size;
+  const backendLayers: any[] = [];
+
+  // Traverse graph in topological order starting from input
+  let currentId: string | undefined = inputLayer.id;
+  let prevSize = input_size;
+
+  while (currentId) {
+    const layer = layers[currentId];
+    if (!layer) break;
+
+    // Convert layer to backend format
+    if (layer.kind === 'Dense') {
+      const units = layer.params.units;
+      backendLayers.push({
+        type: 'linear',
+        in: prevSize,
+        out: units,
+      });
+
+      // Add activation if not 'none'
+      const activation = layer.params.activation;
+      if (activation && activation !== 'none') {
+        backendLayers.push({ type: activation });
+      }
+
+      prevSize = units;
+    } else if (layer.kind === 'Output') {
+      const classes = layer.params.classes;
+      backendLayers.push({
+        type: 'linear',
+        in: prevSize,
+        out: classes,
+      });
+
+      // Add softmax activation
+      if (layer.params.activation === 'softmax') {
+        backendLayers.push({ type: 'softmax' });
+      }
+
+      prevSize = classes;
+    }
+
+    // Move to next connected layer
+    const nextEdge = edges.find(e => e.source === currentId);
+    currentId = nextEdge?.target;
+  }
+
+  return {
+    input_size,
+    layers: backendLayers,
+  };
+}

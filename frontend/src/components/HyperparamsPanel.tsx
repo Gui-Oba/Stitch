@@ -24,22 +24,30 @@ const DEFAULT_HYPERPARAMS: Hyperparams = {
   shuffle: true,
 };
 
-export function HyperparamsPanel() {
+export function HyperparamsPanel({
+  onParamsChange
+}: {
+  onParamsChange?: (params: Hyperparams) => void
+}) {
   const [params, setParams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS);
   const [isExpanded, setIsExpanded] = useState(false);
 
   const updateParam = <K extends keyof Hyperparams>(key: K, value: Hyperparams[K]) => {
-    setParams(prev => ({ ...prev, [key]: value }));
+    const updated = { ...params, [key]: value };
+    setParams(updated);
+    onParamsChange?.(updated);
   };
 
   const updateOptimizer = <K extends keyof Hyperparams['optimizer']>(
     key: K,
     value: Hyperparams['optimizer'][K]
   ) => {
-    setParams(prev => ({
-      ...prev,
-      optimizer: { ...prev.optimizer, [key]: value },
-    }));
+    const updated = {
+      ...params,
+      optimizer: { ...params.optimizer, [key]: value },
+    };
+    setParams(updated);
+    onParamsChange?.(updated);
   };
 
   return (
