@@ -11,6 +11,9 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
+
+from controllers.model_controller import model_bp
+
 """
 Expected request payload:
 {
@@ -55,6 +58,10 @@ _run_event_queues = {}
 
 app = Flask(__name__)
 
+# Register blueprints
+
+app.register_blueprint(model_bp)
+
 
 def _generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
@@ -72,7 +79,9 @@ def _validate_architecture(payload):
     try:
         input_size = int(input_size)
     except (TypeError, ValueError) as exc:
-        raise ValueError("`architecture.input_size` must be convertible to int.") from exc
+        raise ValueError(
+            "`architecture.input_size` must be convertible to int."
+        ) from exc
 
     sanitized_layers = []
     prev_out = input_size
@@ -154,7 +163,9 @@ def _validate_hyperparams(payload):
         result["optimizer"] = merged_optimizer
 
     opt_cfg = result["optimizer"]
-    opt_cfg["type"] = str(opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])).lower()
+    opt_cfg["type"] = str(
+        opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])
+    ).lower()
     if "lr" in opt_cfg:
         try:
             opt_cfg["lr"] = float(opt_cfg["lr"])
@@ -165,7 +176,9 @@ def _validate_hyperparams(payload):
             try:
                 opt_cfg["momentum"] = float(opt_cfg["momentum"])
             except (TypeError, ValueError):
-                opt_cfg["momentum"] = float(DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0))
+                opt_cfg["momentum"] = float(
+                    DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)
+                )
     elif opt_cfg["type"] == "adam":
         for key, fallback in [("beta1", 0.9), ("beta2", 0.999), ("eps", 1e-8)]:
             if key in opt_cfg:
@@ -207,7 +220,9 @@ def _synthetic_dataset(size, input_size, seed):
 
 
 def _prepare_dataloaders(batch_size, train_split, shuffle, max_samples, seed):
-    total_samples = max(max_samples or DEFAULT_HYPERPARAMS["max_samples"], batch_size * 2)
+    total_samples = max(
+        max_samples or DEFAULT_HYPERPARAMS["max_samples"], batch_size * 2
+    )
     total_samples = max(2, total_samples)
     dataset = _synthetic_dataset(total_samples, MNIST_INPUT_SIZE, seed)
 
@@ -220,20 +235,30 @@ def _prepare_dataloaders(batch_size, train_split, shuffle, max_samples, seed):
     if seed is not None:
         generator.manual_seed(seed)
 
-    train_dataset, val_dataset = random_split(dataset, [train_len, val_len], generator=generator)
+    train_dataset, val_dataset = random_split(
+        dataset, [train_len, val_len], generator=generator
+    )
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=shuffle, generator=generator
     )
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, generator=generator)
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, generator=generator
+    )
     return train_loader, val_loader
 
 
 def _configure_optimizer(optimizer_cfg, parameters):
-    opt_type = str(optimizer_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])).lower()
+    opt_type = str(
+        optimizer_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])
+    ).lower()
     lr = float(optimizer_cfg.get("lr", DEFAULT_HYPERPARAMS["optimizer"]["lr"]))
     if opt_type == "sgd":
-        momentum = float(optimizer_cfg.get("momentum", DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)))
+        momentum = float(
+            optimizer_cfg.get(
+                "momentum", DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)
+            )
+        )
         return torch.optim.SGD(parameters, lr=lr, momentum=momentum)
     if opt_type == "adam":
         beta1 = float(optimizer_cfg.get("beta1", 0.9))
@@ -312,7 +337,7 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
         progress = epoch / epochs
 
         # Get learning rate
-        current_lr = optimizer.param_groups[0]['lr']
+        current_lr = optimizer.param_groups[0]["lr"]
 
         metric_entry = {
             "epoch": epoch,
@@ -322,7 +347,9 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
             "val_accuracy": round(val_accuracy, 4),
             "learning_rate": round(current_lr, 6),
             "epoch_time": round(epoch_time, 2),
-            "samples_per_sec": round(train_total / epoch_time, 1) if epoch_time > 0 else 0,
+            "samples_per_sec": round(train_total / epoch_time, 1)
+            if epoch_time > 0
+            else 0,
             "progress": round(progress, 4),
             "eta_seconds": round(eta_seconds, 1),
         }
@@ -379,7 +406,11 @@ def _start_training_thread(run_id, architecture, hyperparams):
                         run_entry_inner["epoch"] = metric_copy["epoch"]
 
             metrics, test_accuracy = _train_with_torch(
-                model, train_loader, val_loader, hyperparams, on_checkpoint=on_checkpoint
+                model,
+                train_loader,
+                val_loader,
+                hyperparams,
+                on_checkpoint=on_checkpoint,
             )
 
             state_dict_cpu = {
@@ -607,7 +638,9 @@ def stream_run_events(run_id):
         except GeneratorExit:
             pass
 
-    return Response(stream_with_context(event_generator()), mimetype="text/event-stream")
+    return Response(
+        stream_with_context(event_generator()), mimetype="text/event-stream"
+    )
 
 
 if __name__ == "__main__":
