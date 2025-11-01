@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { LayersPanel } from '@/components/LayersPanel'
 import type { ActivationType } from '@/types/graph'
+import { useQueryClient } from '@tanstack/react-query'
 
 
 
@@ -42,6 +43,7 @@ export default function Playground() {
   const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false)
   const [modelName, setModelName] = useState('')
   const mutation = SaveModel();
+  const queryClient = useQueryClient();
   const {
     metrics,
     currentState,
@@ -54,6 +56,7 @@ export default function Playground() {
     console.log('works here!@')
     if (modelName.trim().length > 0) {
       mutation.mutate({name: modelName.trim()})
+      queryClient.invalidateQueries({ queryKey: ['models'] });
       setModelName('')
     } else {
       console.log('Model name is required')
