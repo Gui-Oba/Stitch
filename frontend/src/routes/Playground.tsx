@@ -193,11 +193,18 @@ export default function Playground() {
           )}
         </button>
 
-        {/* Metrics Button (when training has metrics or completed) */}
+        <button
+          onClick={() => setMetricsSlideOverOpen(true)}
+          className="absolute top-4 right-64 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2 cursor-pointer"
+        >
+          Save
+        </button>
+
+
         {(metrics.length > 0 || currentState !== null) && (
           <button
             onClick={() => setMetricsSlideOverOpen(true)}
-            className="absolute top-4 right-32 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2"
+            className="absolute top-4 right-32 z-10 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2 cursor-pointer"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
