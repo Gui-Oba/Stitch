@@ -1,7 +1,9 @@
 import '@xyflow/react/dist/style.css'
 import { Toaster } from 'sonner'
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes, Navigate } from 'react-router-dom'
 import Playground from './routes/Playground'
+import Models from './routes/Models'
+import Arena from './routes/Arena'
 
 
 export default function App() {
@@ -12,24 +14,32 @@ export default function App() {
         <header className="h-16 border-b border-gray-200 bg-white shadow-sm">
           <div className="h-full max-w-7xl mx-auto px-4 flex items-center gap-8">
             <h1 className="text-xl font-bold text-gray-900">MAIS 2025</h1>
-            <nav className="flex gap-6">
-              <Link
+            <nav className="flex gap-4 text-sm font-medium">
+              <NavLink
                 to="/playground"
-                className="text-gray-600 hover:text-gray-900 font-medium transition-colors"
+
               >
-                Playground
-              </Link>
-              <Link
+                Build
+              </NavLink>
+              <NavLink
                 to="/models"
-                className="text-gray-600 hover:text-gray-900 font-medium transition-colors"
+
               >
                 Models
-              </Link>
+              </NavLink>
+              <NavLink
+                to="/arena"
+              >
+                Arena
+              </NavLink>
             </nav>
           </div>
         </header>
         <Routes>
+          <Route path="/" element={<Navigate to="/playground" replace />} />
           <Route path="/playground" element={<Playground />} />
+          <Route path="/models" element={<Models />} />
+          <Route path="/arena" element={<Arena />} />
         </Routes>
       </BrowserRouter>
     </>

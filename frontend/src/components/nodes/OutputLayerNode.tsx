@@ -3,7 +3,7 @@ import { useGraphStore } from '../../store/graphStore';
 import type { OutputLayer } from '../../types/graph';
 import { formatShape } from '../../types/graph';
 
-export function OutputLayerNode({ id, data }: NodeProps) {
+export function OutputLayerNode({ id }: NodeProps) {
   const layer = useGraphStore(state => state.layers[id]) as OutputLayer | undefined;
 
   if (!layer) return null;

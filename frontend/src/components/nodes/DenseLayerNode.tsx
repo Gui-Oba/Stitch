@@ -3,7 +3,7 @@ import { useGraphStore } from '../../store/graphStore';
 import type { DenseLayer } from '../../types/graph';
 import { formatShape, calculateParams } from '../../types/graph';
 
-export function DenseLayerNode({ id, data }: NodeProps) {
+export function DenseLayerNode({ id }: NodeProps) {
   const layer = useGraphStore(state => state.layers[id]) as DenseLayer | undefined;
   const inputShape = useGraphStore(state => state.getInputShape(id));
   const updateLayerParams = useGraphStore(state => state.updateLayerParams);

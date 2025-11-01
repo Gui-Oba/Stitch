@@ -162,7 +162,7 @@ export default function Playground() {
   }, [layers, edges, hyperparams, startTraining])
   return (
     <>
-      <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+      <div style={{ width: '100vw', height: 'calc(100vh - 4rem)', position: 'relative' }}>
         {/* Hyperparameters Panel */}
         <HyperparamsPanel onParamsChange={setHyperparams} />
 
@@ -218,7 +218,7 @@ export default function Playground() {
           defaultEdgeOptions={{ animated: true }}
         >
           <Background />
-          <Controls />
+          <Controls position="bottom-left" showInteractive={false} className="shadow-lg" />
         </ReactFlow>
       </div>
 

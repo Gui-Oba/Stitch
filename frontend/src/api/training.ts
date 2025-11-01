@@ -58,7 +58,7 @@ export function subscribeToTrainingEvents(
     }
   })
 
-  eventSource.onerror = (error) => {
+  eventSource.onerror = () => {
     callbacks.onError(new Error('Event stream connection error'))
     eventSource.close()
   }

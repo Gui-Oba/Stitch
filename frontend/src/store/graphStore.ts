@@ -44,7 +44,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   addLayer: (layer) => {
     set((state) => ({
-      layers: { ...state.layers, [layer.id]: layer }
+      layers: { ...state.layers, [layer.id]: layer } as Record<string, AnyLayer>
     }))
     get().recomputeShapes()
   },
@@ -52,7 +52,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   removeLayer: (id) => set((state) => {
     const { [id]: removed, ...rest } = state.layers
     return {
-      layers: rest,
+      layers: rest as Record<string, AnyLayer>,
       edges: state.edges.filter(e => e.source !== id && e.target !== id)
     }
   }),
@@ -65,8 +65,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       return {
         layers: {
           ...state.layers,
-          [id]: { ...layer, params: { ...layer.params, ...params } }
-        }
+          [id]: { ...layer, params: { ...layer.params, ...params } } as AnyLayer
+        } as Record<string, AnyLayer>
       }
     })
     get().recomputeShapes()
@@ -139,7 +139,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     })
 
     return {
-      layers: updatedLayers,
+      layers: updatedLayers as Record<string, AnyLayer>,
       edges: updatedEdges
     }
   })
