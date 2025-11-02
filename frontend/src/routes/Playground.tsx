@@ -296,7 +296,7 @@ export default function Playground() {
           disabled={isTraining}
           className={`absolute top-4 right-26 z-10 ${isTraining
             ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-green-500 hover:bg-green-600 cursor-pointer'
+            : 'bg-gray-400 hover:bg-gray-600 cursor-pointer'
             } text-white font-semibold px-6 py-2.5 rounded-lg shadow-lg transition-colors flex items-center gap-2`}
         >
           {isTraining ? (

@@ -19,7 +19,7 @@ export default function App() {
         <BrowserRouter>
           <header className="h-16 border-b border-gray-200 bg-white shadow-sm">
             <div className="h-full max-w-7xl mx-auto px-4 flex items-center gap-8">
-              <h1 className="text-xl font-bold text-gray-900">MAIS 2025</h1>
+              <h1 className="text-xl flex items-center gap-2 font-bold text-gray-900"><img src="/Group 9.svg" alt="" className="h-4 w-14" />NETBURGER</h1>
               <nav className="flex gap-4 text-sm font-medium">
                 <NavLink
                   to="/playground"
