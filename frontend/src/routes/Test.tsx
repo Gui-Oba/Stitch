@@ -35,7 +35,8 @@ export default function Test() {
     const flattened: number[] = []
     for (const row of grid) {
       for (const value of row) {
-        flattened.push(Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)))
+        const numeric = Number.isFinite(value) ? value : 0
+        flattened.push(numeric / 255)
       }
     }
     return flattened

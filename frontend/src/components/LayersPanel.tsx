@@ -104,7 +104,7 @@ export function LayersPanel({ className }: { className?: string }) {
       {/* Header with rotating arrow */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors hover:bg-gray-50 border-b border-gray-200"
+        className="w-full px-4 py-2.5 flex cursor-pointer items-center justify-between rounded-t-lg transition-colors hover:bg-gray-50 border-b border-gray-200"
       >
         <span className="font-semibold text-gray-700 text-sm">Layer Palette</span>
         <svg
