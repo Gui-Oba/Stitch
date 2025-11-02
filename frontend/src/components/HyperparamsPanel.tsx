@@ -16,7 +16,7 @@ interface Hyperparams {
 }
 
 const DEFAULT_HYPERPARAMS: Hyperparams = {
-  epochs: 5,
+  epochs: 15,
   batch_size: 64,
   optimizer: { type: 'sgd', lr: 0.1, momentum: 0.0 },
   loss: 'cross_entropy',
@@ -53,10 +53,10 @@ export function HyperparamsPanel({
   }
 
   return (
-    <div className={clsx('bg-white rounded-lg shadow-lg border border-gray-200', className)}>
+    <div className={clsx('bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] sm:w-[280px] md:w-[280px]', className)}>
       {/* Header */}
       <button
-        className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors"
+        className="w-[40px] px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors"
       >
         <span className="font-semibold text-gray-700 text-sm">Hyperparameters</span>
       </button>
