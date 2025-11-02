@@ -1,8 +1,45 @@
 import { DrawingGrid } from '@/components/DrawingGrid'
 import { useModels } from '@/hooks/useModels'
+import { useState } from 'react'
+import { NetworkVisualization } from '@/components/NetworkVisualization'
 
 export default function Test() {
   const { data: models, isLoading, isError, error } = useModels()
+  const [selectedModelId, setSelectedModelId] = useState<string>('')
+  const [currentDrawing, setCurrentDrawing] = useState<number[][]>()
+  const [isRunning, setIsRunning] = useState(false)
+  const [prediction, setPrediction] = useState<number | null>(null)
+
+  const selectedModel = models?.find(m => m.model_id === selectedModelId)
+
+  const handleInference = async () => {
+    if (!currentDrawing || !selectedModelId) return
+
+    setIsRunning(true)
+    try {
+      const response = await fetch('/api/infer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model_id: selectedModelId,
+          pixels: currentDrawing,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to run inference')
+      }
+
+      const data = await response.json()
+      setPrediction(data.prediction)
+    } catch (err) {
+      console.error('Inference failed:', err)
+    } finally {
+      setIsRunning(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -35,43 +72,64 @@ export default function Test() {
           <section className="rounded-xl border border-gray-200 bg-white p-8">
             <h2 className="text-xl font-semibold text-gray-900">Drawing Canvas</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Draw a digit (0-9) in the grid below. Your drawing will be processed in real-time.
+              Draw a digit (0-9) in the grid below and select a model to test.
             </p>
-            <div className="mt-6 flex justify-center">
-              <DrawingGrid
-                onDrawingComplete={(pixels) => {
-                  console.log('Drawing completed:', pixels)
-                  // TODO: Add model inference logic here
-                }}
-              />
+            <div className="mt-6 grid grid-cols-2 items-start gap-6">
+              <div className="space-y-6">
+                <DrawingGrid
+                  onDrawingComplete={(pixels) => {
+                    setCurrentDrawing(pixels)
+                    setPrediction(null)
+                  }}
+                />
+              </div>
+              
+              <div className="flex w-full max-w-md flex-col gap-4">
+                <select
+                  value={selectedModelId}
+                  onChange={(e) => setSelectedModelId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">Select a model</option>
+                  {models?.map((model) => (
+                    <option key={model.model_id} value={model.model_id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={handleInference}
+                  disabled={!selectedModelId || !currentDrawing || isRunning}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:bg-gray-300"
+                >
+                  {isRunning ? (
+                    <>
+                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Running...
+                    </>
+                  ) : (
+                    'Run Inference'
+                  )}
+                </button>
+              </div>
             </div>
           </section>
 
-          <section className="rounded-xl border border-gray-200 bg-white p-8">
-            <h2 className="text-xl font-semibold text-gray-900">Model Predictions</h2>
-            <div className="mt-4">
-              {models?.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  No models available. Train a model in the Playground first.
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {models?.map((model) => (
-                    <div
-                      key={model.model_id}
-                      className="rounded-lg border border-gray-100 bg-gray-50 p-4"
-                    >
-                      <h3 className="font-medium text-gray-900">{model.name}</h3>
-                      <p className="mt-1 text-sm text-gray-600">
-                        Prediction: <span className="font-mono">waiting for input...</span>
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
         </div>
+                        
+                {selectedModel && (
+                  <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                    <h3 className="mb-3 text-sm font-medium text-gray-900">Network Architecture</h3>
+                    <NetworkVisualization 
+                      layers={selectedModel.architecture?.layers ?? []} 
+                      currentDrawing={currentDrawing}
+                    />
+                  </div>
+                )}
       </div>
     </main>
   )
