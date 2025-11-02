@@ -1,8 +1,5 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import Tippy from '@tippyjs/react'
-import 'tippy.js/dist/tippy.css'
-import 'tippy.js/themes/light-border.css'
 import { Info } from 'lucide-react'
 import type { DragEvent } from 'react'
 import type { ActivationType } from '@/types/graph'
@@ -14,6 +11,7 @@ type DenseTemplate = {
   description: string
   kind: 'Dense'
   params: { units: number; activation: ActivationType }
+  docsUrl: string
 }
 type ConvTemplate = {
   id: string
@@ -27,6 +25,7 @@ type ConvTemplate = {
     padding: 'valid' | 'same'
     activation: Exclude<ActivationType, 'softmax'>
   }
+  docsUrl: string
 }
 type FlattenTemplate = {
   id: string
@@ -34,6 +33,7 @@ type FlattenTemplate = {
   description: string
   kind: 'Flatten'
   params: Record<string, never>
+  docsUrl: string
 }
 type DropoutTemplate = {
   id: string
@@ -41,6 +41,7 @@ type DropoutTemplate = {
   description: string
   kind: 'Dropout'
   params: { rate: number }
+  docsUrl: string
 }
 type LayerTemplate = DenseTemplate | ConvTemplate | FlattenTemplate | DropoutTemplate
 
@@ -103,6 +104,7 @@ const LAYER_TEMPLATES: LayerTemplate[] = [
     description: 'Fully connected layer connecting all inputs to all outputs.',
     kind: 'Dense',
     params: { units: 64, activation: 'relu' },
+    docsUrl: 'https://keras.io/api/layers/core_layers/dense/'
   },
   {
     id: 'conv-layer',
@@ -110,6 +112,7 @@ const LAYER_TEMPLATES: LayerTemplate[] = [
     description: 'Applies 2D convolution operations to extract spatial features.',
     kind: 'Convolution',
     params: { filters: 32, kernel: 3, stride: 1, padding: 'same', activation: 'relu' },
+    docsUrl: 'https://keras.io/api/layers/convolution_layers/convolution2d/'
   },
   {
     id: 'flatten-layer',
@@ -117,6 +120,7 @@ const LAYER_TEMPLATES: LayerTemplate[] = [
     description: 'Converts multi-dimensional features into a single vector.',
     kind: 'Flatten',
     params: {},
+    docsUrl: 'https://keras.io/api/layers/reshaping_layers/flatten/'
   },
   {
     id: 'dropout-layer',
@@ -124,79 +128,9 @@ const LAYER_TEMPLATES: LayerTemplate[] = [
     description: 'Randomly drops a fraction of neurons during training to prevent overfitting.',
     kind: 'Dropout',
     params: { rate: 0.2 },
+    docsUrl: 'https://keras.io/api/layers/regularization_layers/dropout/'
   },
 ]
-
-// --- Tooltip content generator ---
-function getTooltipContent(template: LayerTemplate) {
-  switch (template.kind) {
-    case 'Dense':
-      return (
-        <div className="max-w-[250px] text-sm">
-          <p>
-            A <b>Dense layer</b> connects every input neuron to every output neuron.
-            Commonly used for classification.
-          </p>
-          <a
-            href="https://keras.io/api/layers/core_layers/dense/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 underline mt-2 inline-block"
-          >
-            Learn more → Keras Dense
-          </a>
-        </div>
-      )
-    case 'Convolution':
-      return (
-        <div className="max-w-[250px] text-sm">
-          <p>
-            A <b>Conv layer</b> detects spatial patterns using filters and kernels — ideal for image data.
-          </p>
-          <a
-            href="https://keras.io/api/layers/convolution_layers/convolution2d/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-indigo-500 underline mt-2 inline-block"
-          >
-            Learn more → Keras Conv2D
-          </a>
-        </div>
-      )
-    case 'Flatten':
-      return (
-        <div className="max-w-[250px] text-sm">
-          <p>
-            <b>Flatten</b> reshapes tensors into 1D for feeding into dense layers.
-          </p>
-          <a
-            href="https://keras.io/api/layers/reshaping_layers/flatten/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-yellow-600 underline mt-2 inline-block"
-          >
-            Learn more → Keras Flatten
-          </a>
-        </div>
-      )
-    case 'Dropout':
-      return (
-        <div className="max-w-[250px] text-sm">
-          <p>
-            <b>Dropout</b> randomly drops neurons during training to prevent overfitting.
-          </p>
-          <a
-            href="https://keras.io/api/layers/regularization_layers/dropout/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-orange-500 underline mt-2 inline-block"
-          >
-            Learn more → Keras Dropout
-          </a>
-        </div>
-      )
-  }
-}
 
 // --- Drag Handler ---
 function createDragStartHandler(template: LayerTemplate) {
@@ -260,24 +194,20 @@ export function LayersPanel({ className }: { className?: string }) {
               >
                 <div className="flex items-center gap-1">
                   <div className={`text-sm font-semibold ${style.label}`}>{template.label}</div>
-                  <Tippy
-                    content={getTooltipContent(template)}
-                    placement="top"
-                    theme="light-border"
-                    interactive={true}
-                    maxWidth={300}
+                  <a
+                    href={template.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={clsx(
+                      'rounded-full p-1 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1',
+                      style.icon,
+                      style.iconHover
+                    )}
+                    title={`Learn more about ${template.label}`}
+                    aria-label={`Learn more about ${template.label}`}
                   >
-                    <button
-                      className={clsx(
-                        'focus:outline-none transition-colors',
-                        style.icon,
-                        style.iconHover
-                      )}
-                      aria-label={`Info about ${template.label}`}
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
-                  </Tippy>
+                    <Info className="h-3.5 w-3.5" />
+                  </a>
                 </div>
                 <div className={`text-xs ${style.description}`}>{template.description}</div>
               </div>
