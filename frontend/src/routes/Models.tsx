@@ -78,11 +78,11 @@ export default function Models() {
             {models?.map((model) => (
               <article
                 key={model.model_id}
-                className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition hover:shadow-md"
+                className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm transition-transform hover:-translate-y-1 hover:shadow-lg"
               >
                 <header className="flex items-start justify-between">
                   <div>
-                    <Link to={`./${model.model_id}`} className="text-lg font-semibold text-gray-900">Model {model.name}</Link>
+                    <Link to={`./${model.model_id}`} className="text-lg font-semibold text-gray-900">{model.name}</Link>
                     <p className="mt-1 text-sm text-gray-500">
                       {model.created_at
                         ? new Date(model.created_at).toLocaleString()

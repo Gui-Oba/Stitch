@@ -23,7 +23,7 @@ export default function ModelPage() {
       <div>
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Model {model.model_id}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{model.name}</h1>
             <p className="mt-1 text-sm text-gray-500">
               {model.created_at
                 ? new Date(model.created_at).toLocaleString()

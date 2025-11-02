@@ -5,6 +5,7 @@ import Playground from './routes/Playground'
 import Models from './routes/Models'
 import Arena from './routes/Arena'
 import ModelPage from './routes/Model'
+import Test from './routes/Test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const queryClient = new QueryClient()
@@ -40,6 +41,13 @@ export default function App() {
                   <img src="/arena.svg" alt="" className="h-4 w-4" />
                   Arena
                 </NavLink>
+                <NavLink
+                  to="/test"
+                  className="flex items-center gap-2"
+                >
+                  <img src="/test.svg" alt="" className="h-4 w-4" />
+                  Test
+                </NavLink>
               </nav>
             </div>
           </header>
@@ -51,6 +59,7 @@ export default function App() {
             <Route path="/models" element={<Models />} />
             <Route path="/models/:id" element={<ModelPage />} />
             <Route path="/arena" element={<Arena />} />
+            <Route path="/test" element={<Test />} />
           </Routes>
         </BrowserRouter>
 
