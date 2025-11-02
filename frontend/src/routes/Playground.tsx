@@ -29,6 +29,7 @@ import type { ActivationType, LayerKind, AnyLayer } from '@/types/graph'
 import { ChatbotPanel } from '@/components/ChatbotPanel'
 import { SchemaProposalPreview } from '@/components/SchemaProposalPreview'
 import { useChat } from '@/hooks/useChat'
+import { PresetChips, getPresetGraph, type PresetType } from '@/components/PresetChips'
 
 const nodeTypes: NodeTypes = {
   input: InputLayerNode,
@@ -71,9 +72,10 @@ function generateLayerId(kind: LayerKind) {
 }
 
 export default function Playground() {
-  const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer, applyProposedSchema } = useGraphStore()
+  const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer, applyProposedSchema, loadGraph } = useGraphStore()
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
   const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false)
+  const [currentPreset, setCurrentPreset] = useState<PresetType>('blank')
   const [showProposalPreview, setShowProposalPreview] = useState(false)
   const {
     metrics,
@@ -323,80 +325,16 @@ export default function Playground() {
     }
   }, [selectedNodeIds, selectedEdgeIds, layers, copiedLayer, addLayer, removeLayer, removeEdge])
 
+  const handlePresetSelect = useCallback((preset: PresetType) => {
+    const presetGraph = getPresetGraph(preset)
+    loadGraph(presetGraph.layers, presetGraph.edges)
+    setCurrentPreset(preset)
+  }, [loadGraph])
+
   useEffect(() => {
     if (Object.keys(layers).length === 0) {
-      addLayer({
-        id: 'input-1',
-        kind: 'Input',
-        params: { size: 784, channels: 1, height: 28, width: 28 },
-        position: { x: 50, y: 200 },
-      })
-
-      addLayer({
-        id: 'conv-1',
-        kind: 'Convolution',
-        params: { filters: 32, kernel: 3, stride: 1, padding: 'same', activation: 'relu' },
-        position: { x: 250, y: 200 },
-      })
-
-      addLayer({
-        id: 'pool-1',
-        kind: 'Pooling',
-        params: { type: 'max', pool_size: 2, stride: 2, padding: 0 },
-        position: { x: 450, y: 200 },
-      })
-
-      addLayer({
-        id: 'conv-2',
-        kind: 'Convolution',
-        params: { filters: 64, kernel: 3, stride: 1, padding: 'same', activation: 'relu' },
-        position: { x: 650, y: 200 },
-      })
-
-      addLayer({
-        id: 'pool-2',
-        kind: 'Pooling',
-        params: { type: 'max', pool_size: 2, stride: 2, padding: 0 },
-        position: { x: 850, y: 200 },
-      })
-
-      addLayer({
-        id: 'flatten-1',
-        kind: 'Flatten',
-        params: {},
-        position: { x: 1050, y: 200 },
-      })
-
-      addLayer({
-        id: 'dense-1',
-        kind: 'Dense',
-        params: { units: 128, activation: 'relu' },
-        position: { x: 1250, y: 200 },
-      })
-
-      addLayer({
-        id: 'dropout-1',
-        kind: 'Dropout',
-        params: { rate: 0.5 },
-        position: { x: 1450, y: 200 },
-      })
-
-      addLayer({
-        id: 'output-1',
-        kind: 'Output',
-        params: { classes: 10, activation: 'softmax' },
-        position: { x: 1650, y: 200 },
-      })
-
-      // Connect the layers
-      addEdge({ id: 'input-1-conv-1', source: 'input-1', target: 'conv-1' })
-      addEdge({ id: 'conv-1-pool-1', source: 'conv-1', target: 'pool-1' })
-      addEdge({ id: 'pool-1-conv-2', source: 'pool-1', target: 'conv-2' })
-      addEdge({ id: 'conv-2-pool-2', source: 'conv-2', target: 'pool-2' })
-      addEdge({ id: 'pool-2-flatten-1', source: 'pool-2', target: 'flatten-1' })
-      addEdge({ id: 'flatten-1-dense-1', source: 'flatten-1', target: 'dense-1' })
-      addEdge({ id: 'dense-1-dropout-1', source: 'dense-1', target: 'dropout-1' })
-      addEdge({ id: 'dropout-1-output-1', source: 'dropout-1', target: 'output-1' })
+      const blankPreset = getPresetGraph('blank')
+      loadGraph(blankPreset.layers, blankPreset.edges)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -438,7 +376,10 @@ export default function Playground() {
     <>
       <div style={{ width: '100vw', height: 'calc(100vh - 4rem)', position: 'relative' }}>
         <div className="absolute top-4 left-4 z-10 flex flex-col gap-4">
-          <HyperparamsPanel onParamsChange={setHyperparams} />
+          <div className="flex flex-row gap-4 items-start">
+            <HyperparamsPanel onParamsChange={setHyperparams} />
+            <PresetChips onPresetSelect={handlePresetSelect} />
+          </div>
           <LayersPanel />
         </div>
 

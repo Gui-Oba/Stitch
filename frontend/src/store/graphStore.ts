@@ -16,6 +16,8 @@ interface GraphState {
   recomputeShapes: () => void
   getInputShape: (layerId: string) => TensorShape | undefined
   applyProposedSchema: (schema: { layers: Record<string, AnyLayer>, edges: GraphEdge[] }) => void
+  clearGraph: () => void
+  loadGraph: (layers: Record<string, AnyLayer>, edges: GraphEdge[]) => void
 }
 
 // Compute output shape for a layer given its input shape
@@ -230,6 +232,21 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     set({
       layers: schema.layers,
       edges: schema.edges
+    })
+    get().recomputeShapes()
+  },
+
+  clearGraph: () => {
+    set({
+      layers: {},
+      edges: []
+    })
+  },
+
+  loadGraph: (layers, edges) => {
+    set({
+      layers,
+      edges
     })
     get().recomputeShapes()
   }
