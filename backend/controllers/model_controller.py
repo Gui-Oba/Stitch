@@ -50,10 +50,18 @@ def _build_model_summary(model_entry: dict, include_runs: bool = False) -> dict:
         model_copy["last_trained_at"] = (
             latest.get("completed_at") or model_copy.get("last_trained_at")
         )
+
+        # Calculate highest accuracy from all succeeded runs
+        accuracies = [
+            run.get("test_accuracy") for run in succeeded_runs
+            if run.get("test_accuracy") is not None
+        ]
+        model_copy["highest_accuracy"] = max(accuracies) if accuracies else None
     else:
         model_copy["trained"] = bool(model_copy.get("trained"))
         model_copy.setdefault("saved_model_path", None)
         model_copy.setdefault("last_trained_at", None)
+        model_copy["highest_accuracy"] = None
 
     saved_path = model_copy.get("saved_model_path")
     if saved_path:

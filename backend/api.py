@@ -6,14 +6,26 @@ os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 
 from datetime import datetime, timezone
 import json
+<<<<<<< Updated upstream
 import math
+=======
+import logging
+>>>>>>> Stashed changes
 import queue
 import threading
+import traceback
 import uuid
 import random
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, stream_with_context
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 import torch
 torch.set_num_threads(1)
@@ -720,6 +732,8 @@ def _start_training_thread(model_id, run_id, architecture, hyperparams):
             emit("state", {"state": "succeeded", "test_accuracy": test_accuracy})
         except Exception as exc:
             error_message = str(exc)
+            logger.error(f"Training failed for run {run_id}: {error_message}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
             store.update_run(
                 run_id,
                 {

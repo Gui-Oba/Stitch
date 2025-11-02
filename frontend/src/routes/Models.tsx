@@ -99,6 +99,14 @@ export default function Models() {
                     <dt className="w-32 font-medium text-gray-900">Input size</dt>
                     <dd>{model.architecture?.input_size ?? '—'}</dd>
                   </div>
+                  <div className="flex gap-2">
+                    <dt className="w-32 font-medium text-gray-900">Highest accuracy</dt>
+                    <dd>
+                      {model.highest_accuracy != null
+                        ? `${(model.highest_accuracy * 100).toFixed(1)}%`
+                        : '—'}
+                    </dd>
+                  </div>
                   <div>
                     <dt className="font-medium text-gray-900">Architecture</dt>
                     <dd className="mt-1 rounded-lg bg-gray-50 p-3 text-xs font-mono text-gray-700">

@@ -38,6 +38,7 @@ export type StoredModel = {
   runs_total?: number
   trained?: boolean
   last_trained_at?: string
+  highest_accuracy?: number
 }
 
 export function SaveModel() {

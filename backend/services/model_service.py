@@ -19,6 +19,8 @@ def build_model(architecture):
             layers.append(nn.Tanh())
         elif layer_type == "softmax":
             layers.append(nn.Softmax(dim=1))
+        elif layer_type == "flatten":
+            layers.append(nn.Flatten())
         else:
             raise ValueError(f"Unsupported layer type `{layer_type}`.")
     return nn.Sequential(*layers)
