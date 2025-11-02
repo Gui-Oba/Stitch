@@ -6,6 +6,7 @@ os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
 
 from datetime import datetime, timezone
 import json
+import math
 import queue
 import threading
 import uuid
@@ -83,6 +84,13 @@ def _generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
+def _infer_image_shape_from_size(size: int):
+    side = int(round(math.sqrt(size)))
+    if side * side != size:
+        return None
+    return 1, side, side
+
+
 def _validate_architecture(payload):
     if not isinstance(payload, dict):
         raise ValueError("`architecture` must be an object.")
@@ -99,8 +107,45 @@ def _validate_architecture(payload):
             "`architecture.input_size` must be convertible to int."
         ) from exc
 
+    input_channels = payload.get("input_channels")
+    input_height = payload.get("input_height")
+    input_width = payload.get("input_width")
+
+    input_shape = payload.get("input_shape")
+    if isinstance(input_shape, (list, tuple)) and len(input_shape) == 3:
+        try:
+            input_channels = int(input_shape[0])
+            input_height = int(input_shape[1])
+            input_width = int(input_shape[2])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("`input_shape` entries must be integers.") from exc
+
+    if input_channels is None or input_height is None or input_width is None:
+        inferred = _infer_image_shape_from_size(input_size)
+        if inferred is not None:
+            input_channels, input_height, input_width = inferred
+
+    if input_channels is not None:
+        try:
+            input_channels = int(input_channels)
+            input_height = int(input_height)
+            input_width = int(input_width)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Input image shape must be integers.") from exc
+        if input_channels <= 0 or input_height <= 0 or input_width <= 0:
+            raise ValueError("Input image dimensions must be positive.")
+
+    if input_channels is None:
+        current_shape = {"mode": "vector", "size": input_size}
+    else:
+        current_shape = {
+            "mode": "image",
+            "channels": input_channels,
+            "height": input_height,
+            "width": input_width,
+        }
+
     sanitized_layers = []
-    prev_out = input_size
 
     for layer in layers:
         if not isinstance(layer, dict):
@@ -108,19 +153,141 @@ def _validate_architecture(payload):
 
         layer_type = str(layer.get("type", "linear")).lower()
         if layer_type == "linear":
-            in_dim = layer.get("in", prev_out)
+            if current_shape["mode"] == "image":
+                flattened = (
+                    current_shape["channels"]
+                    * current_shape["height"]
+                    * current_shape["width"]
+                )
+                sanitized_layers.append({"type": "flatten"})
+                current_shape = {"mode": "vector", "size": flattened}
+
+            in_dim = layer.get("in", current_shape["size"])
             out_dim = layer.get("out", in_dim)
             try:
                 in_dim = int(in_dim)
                 out_dim = int(out_dim)
             except (TypeError, ValueError) as exc:
                 raise ValueError("Linear layer dimensions must be integers.") from exc
+            if in_dim <= 0 or out_dim <= 0:
+                raise ValueError("Linear layer dimensions must be positive.")
             sanitized_layers.append({"type": "linear", "in": in_dim, "out": out_dim})
-            prev_out = out_dim
+            current_shape = {"mode": "vector", "size": out_dim}
+        elif layer_type == "flatten":
+            if current_shape["mode"] == "vector":
+                # Redundant flatten; keep model compatible
+                sanitized_layers.append({"type": "flatten"})
+            else:
+                flattened = (
+                    current_shape["channels"]
+                    * current_shape["height"]
+                    * current_shape["width"]
+                )
+                sanitized_layers.append({"type": "flatten"})
+                current_shape = {"mode": "vector", "size": flattened}
+        elif layer_type == "conv2d":
+            if current_shape["mode"] == "vector":
+                inferred = _infer_image_shape_from_size(current_shape["size"])
+                if inferred is None:
+                    raise ValueError(
+                        "Cannot infer image shape for convolution layer input."
+                    )
+                current_shape = {
+                    "mode": "image",
+                    "channels": inferred[0],
+                    "height": inferred[1],
+                    "width": inferred[2],
+                }
+
+            in_channels = layer.get("in_channels", current_shape["channels"])
+            out_channels = layer.get("out_channels", layer.get("filters"))
+            kernel_size = layer.get("kernel_size", layer.get("kernel", 3))
+            stride = layer.get("stride", 1)
+            padding = layer.get("padding", 0)
+
+            try:
+                in_channels = int(in_channels)
+                out_channels = int(out_channels)
+                kernel_size = int(kernel_size)
+                stride = int(stride)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Conv2d parameters must be integers.") from exc
+
+            if in_channels <= 0 or out_channels <= 0:
+                raise ValueError("Conv2d channels must be positive.")
+            if kernel_size <= 0 or stride <= 0:
+                raise ValueError("Conv2d kernel size and stride must be positive.")
+
+            if isinstance(padding, str):
+                padding = padding.lower()
+                if padding not in {"same", "valid"}:
+                    raise ValueError("Conv2d padding must be 'same', 'valid', or integer.")
+            else:
+                try:
+                    padding = int(padding)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Conv2d padding must be integer or string.") from exc
+                if padding < 0:
+                    raise ValueError("Conv2d padding cannot be negative.")
+
+            if isinstance(padding, str):
+                padding_for_module = padding if padding == "same" else 0
+            else:
+                padding_for_module = padding
+
+            sanitized_layers.append(
+                {
+                    "type": "conv2d",
+                    "in_channels": in_channels,
+                    "out_channels": out_channels,
+                    "kernel_size": kernel_size,
+                    "stride": stride,
+                    "padding": padding_for_module,
+                }
+            )
+
+            if isinstance(padding, str) and padding == "same":
+                next_he = math.ceil(current_shape["height"] / stride)
+                next_wi = math.ceil(current_shape["width"] / stride)
+            else:
+                pad = padding_for_module
+                next_he = max(
+                    1,
+                    math.floor(
+                        (current_shape["height"] + 2 * pad - kernel_size) / stride
+                        + 1
+                    ),
+                )
+                next_wi = max(
+                    1,
+                    math.floor(
+                        (current_shape["width"] + 2 * pad - kernel_size) / stride
+                        + 1
+                    ),
+                )
+
+            current_shape = {
+                "mode": "image",
+                "channels": out_channels,
+                "height": next_he,
+                "width": next_wi,
+            }
         else:
             sanitized_layers.append({"type": layer_type})
 
-    return {"input_size": input_size, "layers": sanitized_layers}
+    result = {"input_size": input_size, "layers": sanitized_layers}
+
+    if current_shape["mode"] == "image":
+        result["output_channels"] = current_shape["channels"]
+        result["output_height"] = current_shape["height"]
+        result["output_width"] = current_shape["width"]
+
+    if input_channels is not None:
+        result["input_channels"] = input_channels
+        result["input_height"] = input_height
+        result["input_width"] = input_width
+
+    return result
 
 
 def _validate_hyperparams(payload):
@@ -212,6 +379,19 @@ def _build_model(architecture):
         layer_type = str(layer_spec["type"]).lower()
         if layer_type == "linear":
             layers.append(nn.Linear(layer_spec["in"], layer_spec["out"]))
+        elif layer_type == "conv2d":
+            padding = layer_spec.get("padding", 0)
+            layers.append(
+                nn.Conv2d(
+                    layer_spec["in_channels"],
+                    layer_spec["out_channels"],
+                    kernel_size=layer_spec["kernel_size"],
+                    stride=layer_spec.get("stride", 1),
+                    padding=padding,
+                )
+            )
+        elif layer_type == "flatten":
+            layers.append(nn.Flatten())
         elif layer_type == "relu":
             layers.append(nn.ReLU())
         elif layer_type == "sigmoid":
@@ -320,7 +500,7 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
         train_total = 0
 
         for inputs, targets in train_loader:
-            inputs = inputs.view(inputs.size(0), -1).to(device)
+            inputs = inputs.to(device)
             targets = targets.to(device)
 
             optimizer.zero_grad()
@@ -343,7 +523,7 @@ def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoin
         val_total = 0
         with torch.no_grad():
             for inputs, targets in val_loader:
-                inputs = inputs.view(inputs.size(0), -1).to(device)
+                inputs = inputs.to(device)
                 targets = targets.to(device)
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
@@ -576,7 +756,10 @@ def _tensor_from_pixels(pixels):
         flattened = [float(value) for value in pixels]
     except (TypeError, ValueError) as exc:
         raise ValueError("`pixels` must be numeric.") from exc
-    tensor = torch.tensor(flattened, dtype=torch.float32).view(1, -1)
+    side = int(round(math.sqrt(MNIST_INPUT_SIZE)))
+    if side * side != MNIST_INPUT_SIZE:
+        raise ValueError("Input size does not correspond to a square image.")
+    tensor = torch.tensor(flattened, dtype=torch.float32).view(1, 1, side, side)
     return tensor
 
 
