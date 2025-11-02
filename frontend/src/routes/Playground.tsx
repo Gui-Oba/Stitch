@@ -75,6 +75,7 @@ export default function Playground() {
   const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer, applyProposedSchema, loadGraph } = useGraphStore()
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
   const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [currentPreset, setCurrentPreset] = useState<PresetType>('blank')
   const [showProposalPreview, setShowProposalPreview] = useState(false)
   const {
@@ -98,7 +99,7 @@ export default function Playground() {
     basePosition: { x: number; y: number } | null
     offset: number
   } | null>(null)
-  const { messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearProposedSchema, addMessage } = useChat()
+  const { messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearProposedSchema, addMessage, clearMessages } = useChat()
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -522,6 +523,7 @@ export default function Playground() {
         isGeneratingSchema={isGeneratingSchema}
         proposedSchema={proposedSchema}
         sendMessage={sendMessage}
+        clearMessages={clearMessages}
       />
 
       {showProposalPreview && proposedSchema && (

@@ -26,6 +26,7 @@ export interface UseChatReturn {
   sendMessage: (message: string, requestSchemaChange: boolean, currentSchema?: { layers: Record<string, AnyLayer>, edges: GraphEdge[] }) => void
   clearProposedSchema: () => void
   addMessage: (message: ChatMessage) => void
+  clearMessages: () => void
 }
 
 export function useChat(): UseChatReturn {
@@ -182,6 +183,10 @@ export function useChat(): UseChatReturn {
     setMessages((prev) => [...prev, message])
   }, [])
 
+  const clearMessages = useCallback(() => {
+    setMessages([])
+  }, [])
+
   return {
     messages,
     isStreaming,
@@ -190,5 +195,6 @@ export function useChat(): UseChatReturn {
     sendMessage,
     clearProposedSchema,
     addMessage,
+    clearMessages,
   }
 }
