@@ -98,7 +98,7 @@ export default function Playground() {
     basePosition: { x: number; y: number } | null
     offset: number
   } | null>(null)
-  const { messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearProposedSchema } = useChat()
+  const { messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearProposedSchema, addMessage } = useChat()
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -203,15 +203,15 @@ export default function Playground() {
       type LayerTemplatePayload =
         | { kind: 'Dense'; params: { units: number; activation: ActivationType } }
         | {
-            kind: 'Convolution'
-            params: {
-              filters: number
-              kernel: number
-              stride: number
-              padding: 'valid' | 'same'
-              activation: Exclude<ActivationType, 'softmax'>
-            }
+          kind: 'Convolution'
+          params: {
+            filters: number
+            kernel: number
+            stride: number
+            padding: 'valid' | 'same'
+            activation: Exclude<ActivationType, 'softmax'>
           }
+        }
         | { kind: 'Flatten'; params: Record<string, never> }
         | { kind: 'Dropout'; params: { rate: number } }
 
@@ -388,15 +388,17 @@ export default function Playground() {
     if (proposedSchema) {
       console.log('Applying proposed schema:', proposedSchema)
       applyProposedSchema(proposedSchema)
+      addMessage({ role: 'system', content: 'Architecture changes applied successfully.' })
       setShowProposalPreview(false)
       clearProposedSchema()
     }
-  }, [proposedSchema, applyProposedSchema, clearProposedSchema])
+  }, [proposedSchema, applyProposedSchema, clearProposedSchema, addMessage])
 
   const handleRejectProposal = useCallback(() => {
+    addMessage({ role: 'system', content: 'Architecture changes rejected.' })
     setShowProposalPreview(false)
     clearProposedSchema()
-  }, [clearProposedSchema])
+  }, [clearProposedSchema, addMessage])
 
   return (
     <>
@@ -404,7 +406,7 @@ export default function Playground() {
         <div className="absolute top-4 left-4 z-10 flex flex-col gap-4 pointer-events-none">
           <div className="flex flex-row gap-4 items-start">
             <HyperparamsPanel onParamsChange={setHyperparams} />
-            <PresetChips onPresetSelect={handlePresetSelect} currentPreset={currentPreset} />
+            <PresetChips onPresetSelect={handlePresetSelect} />
           </div>
           <LayersPanel />
         </div>
