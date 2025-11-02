@@ -87,8 +87,16 @@ export function HyperparamsPanel({
             <label className="text-xs font-medium text-gray-600">Epochs</label>
             <input
               type="number"
-              value={params.epochs}
-              onChange={(e) => updateParam('epochs', parseInt(e.target.value) || 1)}
+              value={params.epochs ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                // allow empty string
+                if (val === '') {
+                  updateParam('epochs', '' as any) // temporarily store empty
+                } else {
+                  updateParam('epochs', parseInt(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               min="1"
             />
@@ -99,8 +107,15 @@ export function HyperparamsPanel({
             <label className="text-xs font-medium text-gray-600">Batch Size</label>
             <input
               type="number"
-              value={params.batch_size}
-              onChange={(e) => updateParam('batch_size', parseInt(e.target.value) || 1)}
+              value={params.batch_size ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '') {
+                  updateParam('batch_size', '' as any)
+                } else {
+                  updateParam('batch_size', parseInt(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               min="1"
             />
@@ -125,8 +140,15 @@ export function HyperparamsPanel({
             <label className="text-xs font-medium text-gray-600">Learning Rate</label>
             <input
               type="number"
-              value={params.optimizer.lr}
-              onChange={(e) => updateOptimizer('lr', parseFloat(e.target.value) || 0.001)}
+              value={params.optimizer.lr ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '') {
+                  updateOptimizer('lr', '' as any)
+                } else {
+                  updateOptimizer('lr', parseFloat(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               step="0.001"
               min="0"
@@ -138,8 +160,15 @@ export function HyperparamsPanel({
             <label className="text-xs font-medium text-gray-600">Momentum</label>
             <input
               type="number"
-              value={params.optimizer.momentum}
-              onChange={(e) => updateOptimizer('momentum', parseFloat(e.target.value) || 0)}
+              value={params.optimizer.momentum ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '') {
+                  updateOptimizer('momentum', '' as any)
+                } else {
+                  updateOptimizer('momentum', parseFloat(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               step="0.1"
               min="0"
@@ -147,26 +176,20 @@ export function HyperparamsPanel({
             />
           </div>
 
-          {/* Loss */}
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-gray-600">Loss</label>
-            <select
-              value={params.loss}
-              onChange={(e) => updateParam('loss', e.target.value)}
-              className="w-32 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="cross_entropy">Cross Entropy</option>
-              <option value="mse">MSE</option>
-            </select>
-          </div>
-
           {/* Seed */}
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-gray-600">Seed</label>
             <input
               type="number"
-              value={params.seed}
-              onChange={(e) => updateParam('seed', parseInt(e.target.value) || 0)}
+              value={params.seed ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '') {
+                  updateParam('seed', '' as any)
+                } else {
+                  updateParam('seed', parseInt(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -176,14 +199,22 @@ export function HyperparamsPanel({
             <label className="text-xs font-medium text-gray-600">Train Split</label>
             <input
               type="number"
-              value={params.train_split}
-              onChange={(e) => updateParam('train_split', parseFloat(e.target.value) || 0.5)}
+              value={params.train_split ?? ''}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === '') {
+                  updateParam('train_split', '' as any)
+                } else {
+                  updateParam('train_split', parseFloat(val))
+                }
+              }}
               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               step="0.1"
               min="0"
               max="1"
             />
           </div>
+
 
           {/* Shuffle */}
           <div className="flex items-center justify-between">
