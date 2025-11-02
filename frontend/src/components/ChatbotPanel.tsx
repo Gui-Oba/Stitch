@@ -41,7 +41,7 @@ const SUGGESTED_PROMPTS = [
 ]
 
 export function ChatbotPanel({ onViewProposal, messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearMessages }: ChatbotPanelProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
   const [inputValue, setInputValue] = useState('')
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -159,9 +159,19 @@ export function ChatbotPanel({ onViewProposal, messages, isStreaming, isGenerati
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center text-gray-500 text-sm mt-8">
-            <p>Hi! I'm your AI assistant.</p>
-            <p className="mt-2">Ask me anything about neural networks or request changes to your architecture!</p>
-            <div className="mt-6 flex flex-wrap gap-2 justify-center px-4">
+            <p className="text-lg font-semibold text-gray-700">Welcome to Neural Network Builder! 👋</p>
+            <p className="mt-3 text-gray-600">
+              This is an interactive tool for designing and visualizing neural network architectures.
+            </p>
+            <p className="mt-2 text-gray-600">
+              <strong>How to use:</strong> Drag and drop layers from the left panel onto the canvas to build your network.
+              Connect layers by dragging from output to input ports. I can help you optimize your architecture,
+              explain concepts, or suggest improvements!
+            </p>
+            <p className="mt-3 text-blue-600 font-medium">
+              Try one of these prompts to get started:
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2 justify-center px-4">
               {SUGGESTED_PROMPTS.map((prompt, index) => (
                 <button
                   key={index}
