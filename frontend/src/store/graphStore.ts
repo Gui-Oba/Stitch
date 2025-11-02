@@ -160,7 +160,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       })
 
       const updatedEdges = [...nextEdges, edge] as GraphEdge[]
-      console.log('[GraphStore] Edges updated:', updatedEdges)
       return {
         edges: updatedEdges
       }

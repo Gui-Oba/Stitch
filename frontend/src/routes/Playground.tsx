@@ -377,15 +377,24 @@ export default function Playground() {
     const presetGraph = getPresetGraph(preset)
     loadGraph(presetGraph.layers, presetGraph.edges)
     setCurrentPreset(preset)
-  }, [loadGraph])
+    if (reactFlowInstance) {
+      reactFlowInstance.fitView({ padding: 0.05, duration: 300 })
+    }
+  }, [loadGraph, reactFlowInstance])
 
   useEffect(() => {
     if (Object.keys(layers).length === 0) {
       const blankPreset = getPresetGraph('blank')
       loadGraph(blankPreset.layers, blankPreset.edges)
+      if (reactFlowInstance) {
+        reactFlowInstance.setViewport({ x: 120, y: 0, zoom: 0.85 }, { duration: 300 })
+        reactFlowInstance.fitView({ padding: 0.05, duration: 300 })
+      }
+    } else if (reactFlowInstance) {
+      reactFlowInstance.fitView({ padding: 0.05, duration: 300 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reactFlowInstance]);
 
   const handleRun = useCallback(() => {
     try {
