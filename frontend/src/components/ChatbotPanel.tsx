@@ -87,12 +87,12 @@ export function ChatbotPanel({ onViewProposal, messages, isStreaming, isGenerati
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 right-4 flex items-center gap-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full px-5 py-3 shadow-lg transition-all z-50 cursor-pointer"
+        className="fixed bottom-4 right-4 transition-transform transform hover:-translate-y-2 flex items-center gap-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full px-5 py-3 shadow-lg cursor-pointer"
       >
-        <span className="text-sm font-semibold tracking-wide uppercase">Ask Stitchy</span>
-        <div className="flex items-center justify-center rounded-full bg-white/20 p-2">
-          <img src="/kiwi.svg" alt="Stitchy Kiwi" className="w-6 h-6" />
+        <div className="flex items-center justify-center p-1">
+          <img src="/favicon.svg" alt="Stitchy Kiwi" className="w-6 h-6" />
         </div>
+        <span className="text-sm font-semibold tracking-wide uppercase">Ask Stitchy</span>
       </button>
     )
   }
