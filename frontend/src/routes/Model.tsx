@@ -1,7 +1,6 @@
 import { useModel, type TrainingRun } from "@/hooks/useModels";
 import { useParams } from "react-router-dom"
 import { summarizeArchitecture, summarizeHyperparams } from "./Models";
-import type { MetricData } from "@/api/types";
 
 export default function ModelPage() {
   const { id } = useParams();

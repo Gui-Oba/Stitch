@@ -1,7 +1,7 @@
 import { DrawingGrid } from '@/components/DrawingGrid'
 import { useModel, useModels } from '@/hooks/useModels'
 import { useEffect, useMemo, useState } from 'react'
-import { NetworkVisualization } from '@/components/NetworkVisualization'
+
 
 export default function Test() {
   const { data: models, isLoading, isError, error } = useModels()
@@ -182,10 +182,7 @@ export default function Test() {
                 {selectedModel && (
                   <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-4">
                     <h3 className="mb-3 text-sm font-medium text-gray-900">Network Architecture</h3>
-                    <NetworkVisualization 
-                      layers={selectedModel.architecture?.layers ?? []} 
-                      currentDrawing={currentDrawing}
-                    />
+
                   </div>
                 )}
       </div>

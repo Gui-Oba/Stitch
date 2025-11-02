@@ -44,15 +44,27 @@ This endpoint supports two workflows:
 
 1. **Register / update an untrained model definition**
    ```json
-   {
-     "architecture": {
-       "input_size": 784,
-       "layers": [
-         {"type": "linear", "in": 784, "out": 128},
-         {"type": "relu"},
-         {"type": "linear", "in": 128, "out": 10}
-       ]
-     },
+ {
+    "architecture": {
+      "input_size": 784,
+      "input_channels": 1,
+      "input_height": 28,
+      "input_width": 28,
+      "layers": [
+        {"type": "conv2d", "in_channels": 1, "out_channels": 32, "kernel_size": 3, "stride": 1, "padding": "same"},
+        {"type": "relu"},
+        {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+        {"type": "conv2d", "in_channels": 32, "out_channels": 64, "kernel_size": 3, "stride": 1, "padding": "same"},
+        {"type": "relu"},
+        {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+        {"type": "flatten"},
+        {"type": "linear", "in": 3136, "out": 128},
+        {"type": "relu"},
+        {"type": "dropout", "p": 0.5},
+        {"type": "linear", "in": 128, "out": 10},
+        {"type": "softmax"}
+      ]
+    },
      "hyperparams": {
        "epochs": 5,
        "batch_size": 64,
@@ -86,10 +98,22 @@ Launch an asynchronous training job for a model definition.
 {
   "architecture": {
     "input_size": 784,
+    "input_channels": 1,
+    "input_height": 28,
+    "input_width": 28,
     "layers": [
-      {"type": "linear", "out": 128},
+      {"type": "conv2d", "in_channels": 1, "out_channels": 32, "kernel_size": 3, "stride": 1, "padding": "same"},
       {"type": "relu"},
-      {"type": "linear", "out": 10}
+      {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+      {"type": "conv2d", "in_channels": 32, "out_channels": 64, "kernel_size": 3, "stride": 1, "padding": "same"},
+      {"type": "relu"},
+      {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+      {"type": "flatten"},
+      {"type": "linear", "in": 3136, "out": 128},
+      {"type": "relu"},
+      {"type": "dropout", "p": 0.5},
+      {"type": "linear", "in": 128, "out": 10},
+      {"type": "softmax"}
     ]
   },
   "hyperparams": {

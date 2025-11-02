@@ -28,9 +28,9 @@ export function DrawingGrid({ width = 28, height = 28, onDrawingComplete }: Draw
     canvas.style.height = `${height * scaleFactor}px`
 
     // Set initial state
-    ctx.fillStyle = 'white'
-    ctx.fillRect(0, 0, width, height)
     ctx.fillStyle = 'black'
+    ctx.fillRect(0, 0, width, height)
+    ctx.fillStyle = 'white'
 
     setContext(ctx)
   }, [width, height])
@@ -75,9 +75,9 @@ export function DrawingGrid({ width = 28, height = 28, onDrawingComplete }: Draw
 
   const clearCanvas = useCallback(() => {
     if (!context) return
-    context.fillStyle = 'white'
-    context.fillRect(0, 0, width, height)
     context.fillStyle = 'black'
+    context.fillRect(0, 0, width, height)
+    context.fillStyle = 'white'
   }, [context, width, height])
 
   return (

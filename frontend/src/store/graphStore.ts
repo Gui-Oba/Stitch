@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AnyLayer, GraphEdge, TensorShape } from '../types/graph'
+import { formatShape } from '../types/graph'
 
 interface GraphState {
   layers: Record<string, AnyLayer>
@@ -14,13 +15,21 @@ interface GraphState {
   removeEdge: (id: string) => void
   recomputeShapes: () => void
   getInputShape: (layerId: string) => TensorShape | undefined
+  applyProposedSchema: (schema: { layers: Record<string, AnyLayer>, edges: GraphEdge[] }) => void
+  clearGraph: () => void
+  loadGraph: (layers: Record<string, AnyLayer>, edges: GraphEdge[]) => void
 }
 
 // Compute output shape for a layer given its input shape
 function computeOutputShape(layer: AnyLayer, inputShape?: TensorShape): TensorShape {
   switch (layer.kind) {
-    case 'Input':
-      return { type: 'vector', size: layer.params.size }
+    case 'Input': {
+      const { channels, height, width, size } = layer.params
+      if (channels && height && width) {
+        return { type: 'image', channels, height, width }
+      }
+      return { type: 'vector', size }
+    }
 
     case 'Dense':
       if (inputShape?.type === 'vector') {
@@ -28,11 +37,52 @@ function computeOutputShape(layer: AnyLayer, inputShape?: TensorShape): TensorSh
       }
       return { type: 'unknown' }
 
-    case 'Convolution':
-      if (inputShape?.type === 'vector') {
-        return { type: 'vector', size: layer.params.filters }
+    case 'Convolution': {
+      let imageShape = inputShape
+      if (imageShape?.type === 'vector') {
+        imageShape = inferImageShapeFromSize(imageShape.size)
+      }
+      if (!imageShape || imageShape.type !== 'image') {
+        return { type: 'unknown' }
+      }
+
+      const { kernel, stride, padding, filters } = layer.params
+      const nextHeight = computeConvOutputDim(imageShape.height, kernel, stride, padding)
+      const nextWidth = computeConvOutputDim(imageShape.width, kernel, stride, padding)
+      return { type: 'image', channels: filters, height: nextHeight, width: nextWidth }
+    }
+
+    case 'Pooling': {
+      let imageShape = inputShape
+      if (imageShape?.type === 'vector') {
+        imageShape = inferImageShapeFromSize(imageShape.size)
+      }
+      if (!imageShape || imageShape.type !== 'image') {
+        return { type: 'unknown' }
+      }
+
+      const { pool_size, stride, padding } = layer.params
+      const nextHeight = computePoolOutputDim(imageShape.height, pool_size, stride, padding)
+      const nextWidth = computePoolOutputDim(imageShape.width, pool_size, stride, padding)
+      return {
+        type: 'image',
+        channels: imageShape.channels,
+        height: nextHeight,
+        width: nextWidth,
+      }
+    }
+
+    case 'Flatten':
+      if (!inputShape) return { type: 'unknown' }
+      if (inputShape.type === 'vector') return inputShape
+      if (inputShape.type === 'image') {
+        const flattened = inputShape.channels * inputShape.height * inputShape.width
+        return { type: 'vector', size: flattened }
       }
       return { type: 'unknown' }
+
+    case 'Dropout':
+      return inputShape ?? { type: 'unknown' }
 
     case 'Output':
       if (inputShape?.type === 'vector') {
@@ -168,9 +218,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     // Update edge labels with shapes
     const updatedEdges = state.edges.map(edge => {
       const sourceLayer = updatedLayers[edge.source]
-      const label = sourceLayer?.shapeOut
-        ? `${sourceLayer.shapeOut.type === 'vector' ? sourceLayer.shapeOut.size : '?'}`
-        : undefined
+      const label = sourceLayer?.shapeOut ? formatShape(sourceLayer.shapeOut) : undefined
       return { ...edge, label }
     })
 
@@ -178,7 +226,30 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       layers: updatedLayers as Record<string, AnyLayer>,
       edges: updatedEdges
     }
-  })
+  }),
+
+  applyProposedSchema: (schema) => {
+    set({
+      layers: schema.layers,
+      edges: schema.edges
+    })
+    get().recomputeShapes()
+  },
+
+  clearGraph: () => {
+    set({
+      layers: {},
+      edges: []
+    })
+  },
+
+  loadGraph: (layers, edges) => {
+    set({
+      layers,
+      edges
+    })
+    get().recomputeShapes()
+  }
 }))
 
 // Convert graph to backend architecture format
@@ -199,11 +270,22 @@ function ensureFlattenLayer(state: ShapeState, layers: any[]): VectorShapeState 
   return { kind: 'vector', size: flattenedSize }
 }
 
-function computeConvOutputDim(input: number, kernel: number, stride: number, padding: 'same' | 'valid'): number {
+function computeConvOutputDim(
+  input: number,
+  kernel: number,
+  stride: number,
+  padding: 'same' | 'valid'
+): number {
   if (padding === 'same') {
-    return Math.ceil(input / stride)
+    return Math.ceil(input / Math.max(1, stride))
   }
-  return Math.max(1, Math.floor((input - kernel) / stride + 1))
+  const effectiveStride = Math.max(1, stride)
+  return Math.max(1, Math.floor((input - kernel) / effectiveStride + 1))
+}
+
+function computePoolOutputDim(input: number, kernel: number, stride: number, padding: number): number {
+  const effectiveStride = Math.max(1, stride)
+  return Math.max(1, Math.floor((input + 2 * padding - kernel) / effectiveStride + 1))
 }
 
 export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: GraphEdge[]) {
@@ -222,8 +304,30 @@ export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: Gra
     throw new Error('No input layer found')
   }
 
-  const inputSize = inputLayer.params.size
-  const initialImageShape = inferImageShapeFromSize(inputSize)
+  const {
+    size: inputLayerSize,
+    channels: inputChannelsParam,
+    height: inputHeightParam,
+    width: inputWidthParam,
+  } = inputLayer.params
+
+  const explicitImageShape: ImageShapeState | undefined =
+    inputChannelsParam && inputHeightParam && inputWidthParam
+      ? {
+          kind: 'image',
+          channels: inputChannelsParam,
+          height: inputHeightParam,
+          width: inputWidthParam,
+        }
+      : undefined
+
+  const productSize =
+    explicitImageShape?.channels && explicitImageShape.height && explicitImageShape.width
+      ? explicitImageShape.channels * explicitImageShape.height * explicitImageShape.width
+      : undefined
+
+  const inputSize = productSize ?? inputLayerSize
+  const initialImageShape = explicitImageShape ?? inferImageShapeFromSize(inputSize)
   let currentShape: ShapeState = initialImageShape ?? { kind: 'vector', size: inputSize }
   const backendLayers: any[] = []
 
@@ -287,6 +391,48 @@ export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: Gra
         height: nextHeight,
         width: nextWidth,
       }
+    } else if (layer.kind === 'Pooling') {
+      if (currentShape.kind === 'vector') {
+        const inferred = inferImageShapeFromSize(currentShape.size)
+        if (!inferred) {
+          throw new Error('Cannot infer image shape for pooling layer input')
+        }
+        currentShape = inferred
+      }
+
+      if (layer.params.type !== 'max') {
+        throw new Error(`Unsupported pooling type: ${layer.params.type}`)
+      }
+
+      const poolSize = Math.max(1, layer.params.pool_size)
+      const strideValue = Math.max(1, layer.params.stride ?? poolSize)
+      const paddingValue = Math.max(0, layer.params.padding ?? 0)
+
+      backendLayers.push({
+        type: 'maxpool2d',
+        kernel_size: poolSize,
+        stride: strideValue,
+        padding: paddingValue,
+      })
+
+      const nextHeight = computePoolOutputDim(currentShape.height, poolSize, strideValue, paddingValue)
+      const nextWidth = computePoolOutputDim(currentShape.width, poolSize, strideValue, paddingValue)
+
+      currentShape = {
+        kind: 'image',
+        channels: currentShape.channels,
+        height: nextHeight,
+        width: nextWidth,
+      }
+    } else if (layer.kind === 'Flatten') {
+      backendLayers.push({ type: 'flatten' })
+      if (currentShape.kind === 'image') {
+        const flattenedSize = currentShape.channels * currentShape.height * currentShape.width
+        currentShape = { kind: 'vector', size: flattenedSize }
+      }
+    } else if (layer.kind === 'Dropout') {
+      const rate = Math.min(1, Math.max(0, layer.params.rate))
+      backendLayers.push({ type: 'dropout', p: rate })
     } else if (layer.kind === 'Output') {
       currentShape = ensureFlattenLayer(currentShape, backendLayers)
 
