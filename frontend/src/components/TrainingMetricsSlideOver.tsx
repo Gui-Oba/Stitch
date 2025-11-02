@@ -83,7 +83,7 @@ export const TrainingMetricsSlideOver: FC<TrainingMetricsSlideOverProps> = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-xl overflow-y-auto px-8">
+      <SheetContent className="w-3xl overflow-y-auto px-8 pb-8">
         <SheetHeader>
           <SheetTitle>Training Metrics</SheetTitle>
           <SheetDescription>

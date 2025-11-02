@@ -52,7 +52,6 @@ export default function ModelPage() {
         </div>
       </div>
 
-      {/* Training Runs */}
       {model.runs && model.runs.length > 0 && (
         <div>
           <h2 className="text-xl font-bold text-gray-900 mb-4">
@@ -146,12 +145,10 @@ function MetricsVisualization({ runs }: { runs: TrainingRun[] }) {
 
   return (
     <div className="space-y-6">
-      {/* Loss Chart */}
       <div>
         <h4 className="text-sm font-medium text-gray-900 mb-2">Loss Over Time</h4>
         <div className="relative h-48 border border-gray-200 rounded-lg p-4 bg-gray-50">
           <svg className="w-full h-full" viewBox="0 0 400 160" preserveAspectRatio="none">
-            {/* Train Loss Line */}
             <polyline
               fill="none"
               stroke="#3b82f6"
@@ -160,7 +157,6 @@ function MetricsVisualization({ runs }: { runs: TrainingRun[] }) {
                 `${(i / maxEpoch) * 400},${160 - (m.train_loss / maxLoss) * 160}`
               ).join(' ')}
             />
-            {/* Val Loss Line */}
             <polyline
               fill="none"
               stroke="#ef4444"
