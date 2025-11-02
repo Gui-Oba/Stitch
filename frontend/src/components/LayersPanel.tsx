@@ -27,7 +27,7 @@ function handleDragStart() {
 
 export function LayersPanel({ className }: { className?: string }) {
   return (
-    <div className={`bg-white rounded-lg shadow-lg border border-gray-200 ${className ?? ''}`}>
+    <div className={`bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] sm:w-[280px] md:w-[280px] ${className ?? ''}`}>
       <div className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg border-b border-gray-200">
         <span className="font-semibold text-gray-700 text-sm">Layer Palette</span>
       </div>
