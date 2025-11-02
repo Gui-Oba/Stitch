@@ -13,6 +13,10 @@ BACKEND_DIR = Path(__file__).resolve().parent
 MNIST_DATA_ROOT = BACKEND_DIR / "data" / "mnist"
 
 
+BACKEND_DIR = Path(__file__).resolve().parent
+MNIST_DATA_ROOT = BACKEND_DIR / "data" / "mnist"
+
+
 def build_model(architecture):
     layers = []
     for layer_spec in architecture["layers"]:

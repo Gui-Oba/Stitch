@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import clsx from 'clsx'
 import type { DragEvent } from 'react'
 import type { ActivationType } from '@/types/graph'
 
@@ -95,30 +97,57 @@ function createDragStartHandler(template: LayerTemplate) {
 }
 
 export function LayersPanel({ className }: { className?: string }) {
+  const [isOpen, setIsOpen] = useState(true)
+
   return (
-    <div className={`bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] sm:w-[280px] md:w-[280px] ${className ?? ''}`}>
-      <div className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg border-b border-gray-200">
+    <div className={clsx('bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] md:w-[280px]', className)}>
+      {/* Header with rotating arrow */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors hover:bg-gray-50 border-b border-gray-200"
+      >
         <span className="font-semibold text-gray-700 text-sm">Layer Palette</span>
-      </div>
-      <div className="p-4 flex flex-col gap-3 min-w-[280px]">
-        <p className="text-xs text-gray-500">
-          Drag a preset onto the canvas, then tune the settings inline.
-        </p>
-        {LAYER_TEMPLATES.map((template) => {
-          const style = TEMPLATE_STYLES[template.kind]
-          return (
-            <div
-              key={template.id}
-              draggable
-              onDragStart={createDragStartHandler(template)}
-              className={`border border-dashed ${style.border} rounded-lg px-3 py-2 ${style.background} ${style.hover} cursor-grab active:cursor-grabbing transition-colors`}
-            >
-              <div className={`text-sm font-semibold ${style.label}`}>{template.label}</div>
-              <div className={`text-xs ${style.description}`}>{template.description}</div>
-            </div>
-          )
-        })}
-      </div>
+        <svg
+          className={clsx(
+            'w-4 h-4 text-gray-500 transform transition-transform duration-200',
+            isOpen ? 'rotate-180' : 'rotate-0'
+          )}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Collapsible content */}
+      {isOpen && (
+        <div className="p-4 flex flex-col gap-3 min-w-[280px]">
+          <p className="text-xs text-gray-500">
+            Drag a preset onto the canvas, then tune the settings inline.
+          </p>
+
+          {LAYER_TEMPLATES.map((template) => {
+            const style = TEMPLATE_STYLES[template.kind]
+            return (
+              <div
+                key={template.id}
+                draggable
+                onDragStart={createDragStartHandler(template)}
+                className={clsx(
+                  'border border-dashed rounded-lg px-3 py-2 cursor-grab active:cursor-grabbing transition-colors',
+                  style.border,
+                  style.background,
+                  style.hover
+                )}
+              >
+                <div className={`text-sm font-semibold ${style.label}`}>{template.label}</div>
+                <div className={`text-xs ${style.description}`}>{template.description}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

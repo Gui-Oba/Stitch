@@ -33,6 +33,7 @@ export function HyperparamsPanel({
   className?: string
 }) {
   const [params, setParams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
+  const [isOpen, setIsOpen] = useState(true)
 
   const updateParam = <K extends keyof Hyperparams>(key: K, value: Hyperparams[K]) => {
     const updated = { ...params, [key]: value }
@@ -53,17 +54,34 @@ export function HyperparamsPanel({
   }
 
   return (
-    <div className={clsx('bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] sm:w-[280px] md:w-[280px]', className)}>
+    <div
+      className={clsx(
+        'bg-white rounded-lg shadow-lg border border-gray-200 w-[200px] md:w-[280px]',
+        className
+      )}
+    >
       {/* Header */}
       <button
-        className="w-[40px] px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-2.5 flex items-center justify-between rounded-t-lg transition-colors hover:bg-gray-50 border-b border-gray-200"
       >
         <span className="font-semibold text-gray-700 text-sm">Hyperparameters</span>
+        <svg
+          className={clsx(
+            'w-4 h-4 text-gray-500 transform transition-transform duration-200',
+            isOpen ? 'rotate-180' : 'rotate-0'
+          )}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* Expanded Panel */}
-      
-        <div className="p-4 space-y-3 border-t border-gray-200 min-w-[280px]">
+      {/* Dropdown (Collapsible Content) */}
+      {isOpen && (
+        <div className="p-4 space-y-3">
           {/* Epochs */}
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-gray-600">Epochs</label>
@@ -88,7 +106,7 @@ export function HyperparamsPanel({
             />
           </div>
 
-          {/* Optimizer Type */}
+          {/* Optimizer */}
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-gray-600">Optimizer</label>
             <select
@@ -178,6 +196,7 @@ export function HyperparamsPanel({
             />
           </div>
         </div>
+      )}
     </div>
   )
 }
