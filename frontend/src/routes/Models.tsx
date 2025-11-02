@@ -1,3 +1,4 @@
+import { HyperparamsTable } from '@/components/HyperparamsTable';
 import { useModels, type StoredLayer } from '@/hooks/useModels';
 import { Link } from 'react-router-dom';
 
@@ -130,7 +131,7 @@ export default function Models() {
                     <div>
                       <dt className="font-medium text-gray-900">Hyperparameters</dt>
                       <dd className="mt-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
-                        {summarizeHyperparams(model.hyperparams)}
+                        <HyperparamsTable hyperparams={model.hyperparams} />
                       </dd>
                     </div>
                   </dl>
