@@ -1,7 +1,6 @@
 import copy
 from datetime import datetime, timezone
 import json
-import math
 import logging
 import queue
 import threading
@@ -10,9 +9,11 @@ import uuid
 import random
 from pathlib import Path
 from flask import Flask, Response, jsonify, request, stream_with_context
+from flask_cors import CORS
 import torch
 from torch import nn
 from controllers.model_controller import model_bp
+from controllers.chat_controller import chat_bp
 from services.model_service import (
     build_model,
     prepare_dataloaders,
@@ -20,7 +21,7 @@ from services.model_service import (
     tensor_from_pixels,
 )
 from store import store
-from utils.validation import DEFAULT_HYPERPARAMS, MNIST_INPUT_SIZE
+from utils.validation import validate_architecture, validate_hyperparams
 
 # Configure logging
 logging.basicConfig(
@@ -34,10 +35,22 @@ Expected request payload:
 {
   "architecture": {
     "input_size": 784,
+    "input_channels": 1,
+    "input_height": 28,
+    "input_width": 28,
     "layers": [
-      {"type": "linear", "in": 784, "out": 128},
+      {"type": "conv2d", "in_channels": 1, "out_channels": 32, "kernel_size": 3, "stride": 1, "padding": "same"},
       {"type": "relu"},
-      {"type": "linear", "in": 128, "out": 10}
+      {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+      {"type": "conv2d", "in_channels": 32, "out_channels": 64, "kernel_size": 3, "stride": 1, "padding": "same"},
+      {"type": "relu"},
+      {"type": "maxpool2d", "kernel_size": 2, "stride": 2, "padding": 0},
+      {"type": "flatten"},
+      {"type": "linear", "in": 3136, "out": 128},
+      {"type": "relu"},
+      {"type": "dropout", "p": 0.5},
+      {"type": "linear", "in": 128, "out": 10},
+      {"type": "softmax"}
     ]
   },
   "hyperparams": {
@@ -65,305 +78,16 @@ def _model_file_path(model_id: str) -> Path:
 
 
 app = Flask(__name__)
+CORS(app)
 
 # Register blueprints
 
 app.register_blueprint(model_bp)
+app.register_blueprint(chat_bp)
 
 
 def _generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
-
-
-def _infer_image_shape_from_size(size: int):
-    side = int(round(math.sqrt(size)))
-    if side * side != size:
-        return None
-    return 1, side, side
-
-
-def _validate_architecture(payload):
-    if not isinstance(payload, dict):
-        raise ValueError("`architecture` must be an object.")
-
-    input_size = payload.get("input_size", MNIST_INPUT_SIZE)
-    layers = payload.get("layers") or []
-    if not layers:
-        raise ValueError("`architecture.layers` must contain at least one layer.")
-
-    try:
-        input_size = int(input_size)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "`architecture.input_size` must be convertible to int."
-        ) from exc
-
-    input_channels = payload.get("input_channels")
-    input_height = payload.get("input_height")
-    input_width = payload.get("input_width")
-
-    input_shape = payload.get("input_shape")
-    if isinstance(input_shape, (list, tuple)) and len(input_shape) == 3:
-        try:
-            input_channels = int(input_shape[0])
-            input_height = int(input_shape[1])
-            input_width = int(input_shape[2])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("`input_shape` entries must be integers.") from exc
-
-    if input_channels is None or input_height is None or input_width is None:
-        inferred = _infer_image_shape_from_size(input_size)
-        if inferred is not None:
-            input_channels, input_height, input_width = inferred
-
-    if input_channels is not None:
-        try:
-            input_channels = int(input_channels)
-            input_height = int(input_height)
-            input_width = int(input_width)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Input image shape must be integers.") from exc
-        if input_channels <= 0 or input_height <= 0 or input_width <= 0:
-            raise ValueError("Input image dimensions must be positive.")
-
-    if input_channels is None:
-        current_shape = {"mode": "vector", "size": input_size}
-    else:
-        current_shape = {
-            "mode": "image",
-            "channels": input_channels,
-            "height": input_height,
-            "width": input_width,
-        }
-
-    sanitized_layers = []
-
-    for layer in layers:
-        if not isinstance(layer, dict):
-            raise ValueError("Each layer must be described by an object.")
-
-        layer_type = str(layer.get("type", "linear")).lower()
-        if layer_type == "linear":
-            if current_shape["mode"] == "image":
-                flattened = (
-                    current_shape["channels"]
-                    * current_shape["height"]
-                    * current_shape["width"]
-                )
-                sanitized_layers.append({"type": "flatten"})
-                current_shape = {"mode": "vector", "size": flattened}
-
-            in_dim = layer.get("in", current_shape["size"])
-            out_dim = layer.get("out", in_dim)
-            try:
-                in_dim = int(in_dim)
-                out_dim = int(out_dim)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("Linear layer dimensions must be integers.") from exc
-            if in_dim <= 0 or out_dim <= 0:
-                raise ValueError("Linear layer dimensions must be positive.")
-            sanitized_layers.append({"type": "linear", "in": in_dim, "out": out_dim})
-            current_shape = {"mode": "vector", "size": out_dim}
-        elif layer_type == "flatten":
-            if current_shape["mode"] == "vector":
-                # Redundant flatten; keep model compatible
-                sanitized_layers.append({"type": "flatten"})
-            else:
-                flattened = (
-                    current_shape["channels"]
-                    * current_shape["height"]
-                    * current_shape["width"]
-                )
-                sanitized_layers.append({"type": "flatten"})
-                current_shape = {"mode": "vector", "size": flattened}
-        elif layer_type == "conv2d":
-            if current_shape["mode"] == "vector":
-                inferred = _infer_image_shape_from_size(current_shape["size"])
-                if inferred is None:
-                    raise ValueError(
-                        "Cannot infer image shape for convolution layer input."
-                    )
-                current_shape = {
-                    "mode": "image",
-                    "channels": inferred[0],
-                    "height": inferred[1],
-                    "width": inferred[2],
-                }
-
-            in_channels = layer.get("in_channels", current_shape["channels"])
-            out_channels = layer.get("out_channels", layer.get("filters"))
-            kernel_size = layer.get("kernel_size", layer.get("kernel", 3))
-            stride = layer.get("stride", 1)
-            padding = layer.get("padding", 0)
-
-            try:
-                in_channels = int(in_channels)
-                out_channels = int(out_channels)
-                kernel_size = int(kernel_size)
-                stride = int(stride)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("Conv2d parameters must be integers.") from exc
-
-            if in_channels <= 0 or out_channels <= 0:
-                raise ValueError("Conv2d channels must be positive.")
-            if kernel_size <= 0 or stride <= 0:
-                raise ValueError("Conv2d kernel size and stride must be positive.")
-
-            if isinstance(padding, str):
-                padding = padding.lower()
-                if padding not in {"same", "valid"}:
-                    raise ValueError(
-                        "Conv2d padding must be 'same', 'valid', or integer."
-                    )
-            else:
-                try:
-                    padding = int(padding)
-                except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        "Conv2d padding must be integer or string."
-                    ) from exc
-                if padding < 0:
-                    raise ValueError("Conv2d padding cannot be negative.")
-
-            if isinstance(padding, str):
-                padding_for_module = padding if padding == "same" else 0
-            else:
-                padding_for_module = padding
-
-            sanitized_layers.append(
-                {
-                    "type": "conv2d",
-                    "in_channels": in_channels,
-                    "out_channels": out_channels,
-                    "kernel_size": kernel_size,
-                    "stride": stride,
-                    "padding": padding_for_module,
-                }
-            )
-
-            if isinstance(padding, str) and padding == "same":
-                next_he = math.ceil(current_shape["height"] / stride)
-                next_wi = math.ceil(current_shape["width"] / stride)
-            else:
-                pad = padding_for_module
-                next_he = max(
-                    1,
-                    math.floor(
-                        (current_shape["height"] + 2 * pad - kernel_size) / stride + 1
-                    ),
-                )
-                next_wi = max(
-                    1,
-                    math.floor(
-                        (current_shape["width"] + 2 * pad - kernel_size) / stride + 1
-                    ),
-                )
-
-            current_shape = {
-                "mode": "image",
-                "channels": out_channels,
-                "height": next_he,
-                "width": next_wi,
-            }
-        else:
-            sanitized_layers.append({"type": layer_type})
-
-    result = {"input_size": input_size, "layers": sanitized_layers}
-
-    if current_shape["mode"] == "image":
-        result["output_channels"] = current_shape["channels"]
-        result["output_height"] = current_shape["height"]
-        result["output_width"] = current_shape["width"]
-
-    if input_channels is not None:
-        result["input_channels"] = input_channels
-        result["input_height"] = input_height
-        result["input_width"] = input_width
-
-    return result
-
-
-def _validate_hyperparams(payload):
-    if payload is None:
-        payload = {}
-    if not isinstance(payload, dict):
-        raise ValueError("`hyperparams` must be an object.")
-
-    result = json.loads(json.dumps(DEFAULT_HYPERPARAMS))
-
-    if "epochs" in payload:
-        try:
-            result["epochs"] = int(payload["epochs"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("`hyperparams.epochs` must be an integer.") from exc
-
-    if "batch_size" in payload:
-        try:
-            result["batch_size"] = int(payload["batch_size"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("`hyperparams.batch_size` must be an integer.") from exc
-
-    if "train_split" in payload:
-        try:
-            result["train_split"] = float(payload["train_split"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("`hyperparams.train_split` must be numeric.") from exc
-
-    if "shuffle" in payload:
-        result["shuffle"] = bool(payload["shuffle"])
-
-    if "loss" in payload:
-        result["loss"] = str(payload["loss"])
-
-    if "seed" in payload:
-        seed = payload["seed"]
-        if seed is None:
-            result["seed"] = None
-        else:
-            try:
-                result["seed"] = int(seed)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("`hyperparams.seed` must be integer or null.") from exc
-
-    if "max_samples" in payload:
-        try:
-            result["max_samples"] = int(payload["max_samples"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError("`hyperparams.max_samples` must be an integer.") from exc
-
-    optimizer = payload.get("optimizer")
-    if isinstance(optimizer, dict):
-        merged_optimizer = dict(DEFAULT_HYPERPARAMS["optimizer"])
-        for key, value in optimizer.items():
-            merged_optimizer[key] = value
-        result["optimizer"] = merged_optimizer
-
-    opt_cfg = result["optimizer"]
-    opt_cfg["type"] = str(
-        opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])
-    ).lower()
-    if "lr" in opt_cfg:
-        try:
-            opt_cfg["lr"] = float(opt_cfg["lr"])
-        except (TypeError, ValueError):
-            opt_cfg["lr"] = float(DEFAULT_HYPERPARAMS["optimizer"]["lr"])
-    if opt_cfg["type"] == "sgd":
-        if "momentum" in opt_cfg:
-            try:
-                opt_cfg["momentum"] = float(opt_cfg["momentum"])
-            except (TypeError, ValueError):
-                opt_cfg["momentum"] = float(
-                    DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)
-                )
-    elif opt_cfg["type"] == "adam":
-        for key, fallback in [("beta1", 0.9), ("beta2", 0.999), ("eps", 1e-8)]:
-            if key in opt_cfg:
-                try:
-                    opt_cfg[key] = float(opt_cfg[key])
-                except (TypeError, ValueError):
-                    opt_cfg[key] = float(fallback)
-
-    return result
 
 
 def _train_with_torch(model, train_loader, val_loader, hyperparams, on_checkpoint=None):
@@ -494,12 +218,7 @@ def _collect_sample_predictions(model: nn.Module, data_loader, limit: int = 8):
                 image_tensor = inputs[idx].detach().cpu()
                 if image_tensor.dim() == 3 and image_tensor.size(0) == 1:
                     image_tensor = image_tensor.squeeze(0)
-                grid = (
-                    image_tensor.mul(255)
-                    .clamp(0, 255)
-                    .to(torch.uint8)
-                    .tolist()
-                )
+                grid = image_tensor.mul(255).clamp(0, 255).to(torch.uint8).tolist()
                 confidence = float(
                     probabilities[idx, predictions[idx]].detach().cpu().item()
                 )
@@ -720,8 +439,8 @@ def train_model():
     hyperparams_raw = payload.get("hyperparams")
 
     try:
-        architecture = _validate_architecture(architecture_raw)
-        hyperparams = _validate_hyperparams(hyperparams_raw)
+        architecture = validate_architecture(architecture_raw)
+        hyperparams = validate_hyperparams(hyperparams_raw)
     except ValueError as exc:
         return _error_response(str(exc))
 

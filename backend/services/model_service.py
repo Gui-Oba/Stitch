@@ -13,10 +13,6 @@ BACKEND_DIR = Path(__file__).resolve().parent
 MNIST_DATA_ROOT = BACKEND_DIR / "data" / "mnist"
 
 
-BACKEND_DIR = Path(__file__).resolve().parent
-MNIST_DATA_ROOT = BACKEND_DIR / "data" / "mnist"
-
-
 def build_model(architecture):
     layers = []
     for layer_spec in architecture["layers"]:
@@ -34,6 +30,20 @@ def build_model(architecture):
                     padding=padding,
                 )
             )
+        elif layer_type == "maxpool2d":
+            kernel_size = layer_spec.get("kernel_size", 2)
+            stride = layer_spec.get("stride", kernel_size)
+            padding = layer_spec.get("padding", 0)
+            layers.append(
+                nn.MaxPool2d(
+                    kernel_size=kernel_size,
+                    stride=stride,
+                    padding=padding,
+                )
+            )
+        elif layer_type == "dropout":
+            p = float(layer_spec.get("p", layer_spec.get("rate", 0.5)))
+            layers.append(nn.Dropout(p=p))
         elif layer_type == "flatten":
             layers.append(nn.Flatten())
         elif layer_type == "relu":

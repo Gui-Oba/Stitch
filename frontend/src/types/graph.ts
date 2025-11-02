@@ -1,9 +1,17 @@
 // Shape types for tensor validation
 export type TensorShape =
   | { type: 'vector'; size: number }
+  | { type: 'image'; channels: number; height: number; width: number }
   | { type: 'unknown' };
 
-export type LayerKind = 'Input' | 'Dense' | 'Convolution' | 'Output';
+export type LayerKind =
+  | 'Input'
+  | 'Dense'
+  | 'Convolution'
+  | 'Pooling'
+  | 'Flatten'
+  | 'Dropout'
+  | 'Output';
 
 export type ActivationType = 'relu' | 'sigmoid' | 'tanh' | 'softmax' | 'none';
 
@@ -24,6 +32,9 @@ export interface InputLayer extends Layer {
   kind: 'Input';
   params: {
     size: number;
+    channels?: number;
+    height?: number;
+    width?: number;
   };
 }
 
@@ -47,6 +58,28 @@ export interface ConvLayer extends Layer {
   };
 }
 
+export interface PoolingLayer extends Layer {
+  kind: 'Pooling';
+  params: {
+    type: 'max';
+    pool_size: number;
+    stride: number;
+    padding: number;
+  };
+}
+
+export interface FlattenLayer extends Layer {
+  kind: 'Flatten';
+  params: Record<string, never>;
+}
+
+export interface DropoutLayer extends Layer {
+  kind: 'Dropout';
+  params: {
+    rate: number;
+  };
+}
+
 export interface OutputLayer extends Layer {
   kind: 'Output';
   params: {
@@ -55,7 +88,14 @@ export interface OutputLayer extends Layer {
   };
 }
 
-export type AnyLayer = InputLayer | DenseLayer | ConvLayer | OutputLayer;
+export type AnyLayer =
+  | InputLayer
+  | DenseLayer
+  | ConvLayer
+  | PoolingLayer
+  | FlattenLayer
+  | DropoutLayer
+  | OutputLayer;
 
 // Edge with shape label
 export interface GraphEdge {
@@ -71,6 +111,9 @@ export interface GraphEdge {
 export function formatShape(shape?: TensorShape): string {
   if (!shape) return 'unknown';
   if (shape.type === 'vector') return `(${shape.size})`;
+  if (shape.type === 'image') {
+    return `(${shape.channels}×${shape.height}×${shape.width})`;
+  }
   return 'unknown';
 }
 
@@ -82,11 +125,18 @@ export function calculateParams(layer: AnyLayer, inputShape?: TensorShape): numb
     const bias = useBias ? layer.params.units : 0;
     return weights + bias;
   }
-  if (layer.kind === 'Convolution' && inputShape?.type === 'vector') {
+  if (layer.kind === 'Convolution') {
     const kernelArea = Math.max(1, layer.params.kernel) ** 2;
-    const weights = kernelArea * inputShape.size * layer.params.filters;
-    const bias = layer.params.filters;
-    return weights + bias;
+    if (inputShape?.type === 'image') {
+      const weights = kernelArea * inputShape.channels * layer.params.filters;
+      const bias = layer.params.filters;
+      return weights + bias;
+    }
+    if (inputShape?.type === 'vector') {
+      const weights = kernelArea * inputShape.size * layer.params.filters;
+      const bias = layer.params.filters;
+      return weights + bias;
+    }
   }
   return 0;
 }
