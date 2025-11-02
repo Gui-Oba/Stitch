@@ -1,5 +1,6 @@
 import { useModels, type StoredLayer } from '@/hooks/useModels';
 import { Link } from 'react-router-dom';
+import { HyperparamsTable } from '@/components/HyperparamsTable';
 
 export function summarizeArchitecture(layers?: StoredLayer[]): string {
   if (!layers || layers.length === 0) return 'No layers recorded.'
@@ -15,24 +16,6 @@ export function summarizeArchitecture(layers?: StoredLayer[]): string {
     .join('  •  ')
 }
 
-export function summarizeHyperparams(hyperparams?: Record<string, unknown>): string {
-  if (!hyperparams || Object.keys(hyperparams).length === 0) {
-    return 'No hyperparameters recorded.'
-  }
-
-  const parts: string[] = []
-  const entries = Object.entries(hyperparams)
-
-  for (const [key, value] of entries) {
-    if (typeof value === 'object' && value !== null) {
-      parts.push(`${key}: ${JSON.stringify(value)}`)
-    } else {
-      parts.push(`${key}: ${String(value)}`)
-    }
-  }
-
-  return parts.join('  •  ')
-}
 
 export default function Models() {
   const { data: models, isLoading, isError, error } = useModels();
@@ -128,9 +111,9 @@ export default function Models() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-gray-900">Hyperparameters</dt>
-                    <dd className="mt-1 rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
-                      {summarizeHyperparams(model.hyperparams)}
+                    <dt className="font-medium text-gray-900 mb-2">Hyperparameters</dt>
+                    <dd>
+                      <HyperparamsTable hyperparams={model.hyperparams} />
                     </dd>
                   </div>
                 </dl>
