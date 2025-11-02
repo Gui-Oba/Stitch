@@ -15,21 +15,28 @@ import '@xyflow/react/dist/style.css'
 import { useGraphStore, graphToArchitecture } from '@/store/graphStore'
 import { InputLayerNode } from '@/components/nodes/InputLayerNode'
 import { DenseLayerNode } from '@/components/nodes/DenseLayerNode'
+import { ConvLayerNode } from '@/components/nodes/ConvLayerNode'
 import { OutputLayerNode } from '@/components/nodes/OutputLayerNode'
 import { HyperparamsPanel, type Hyperparams, DEFAULT_HYPERPARAMS } from '@/components/HyperparamsPanel'
-import { validateConnection, notifyConnectionError, hasIncomingConnection } from '@/lib/shapeInference'
+import { validateConnection, notifyConnectionError } from '@/lib/shapeInference'
 import { TrainingMetricsSlideOver } from '@/components/TrainingMetricsSlideOver'
 import { useTrainingMetrics } from '@/hooks/useTraining'
 import { LayersPanel } from '@/components/LayersPanel'
-import type { ActivationType } from '@/types/graph'
-
-
+import type { ActivationType, LayerKind } from '@/types/graph'
 
 const nodeTypes: NodeTypes = {
   input: InputLayerNode,
   dense: DenseLayerNode,
+  conv: ConvLayerNode,
   output: OutputLayerNode,
 };
+
+const layerKindToNodeType: Record<LayerKind, keyof typeof nodeTypes> = {
+  Input: 'input',
+  Dense: 'dense',
+  Convolution: 'conv',
+  Output: 'output',
+}
 
 export default function Playground() {
   const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer } = useGraphStore()
@@ -48,10 +55,16 @@ export default function Playground() {
     const layerArray = Object.values(layers);
     return layerArray.map((layer, index) => ({
       id: layer.id,
-      type: layer.kind.toLowerCase(),
+      type: layerKindToNodeType[layer.kind],
       position: layer.position ?? { x: index * 300 + 50, y: 250 },
       data: {},
       draggable: true,
+      style: {
+        background: 'transparent',
+        border: 'none',
+        padding: 0,
+        boxShadow: 'none',
+      },
     }));
   }, [layers]);
 
@@ -60,6 +73,8 @@ export default function Playground() {
       id: edge.id,
       source: edge.source,
       target: edge.target,
+      sourceHandle: edge.sourceHandle ?? undefined,
+      targetHandle: edge.targetHandle ?? undefined,
       label: edge.label,
       animated: true,
     }));
@@ -77,12 +92,6 @@ export default function Playground() {
 
       if (!sourceLayer || !targetLayer) return;
 
-      // Check if target already has an incoming connection
-      if (hasIncomingConnection(target, edges)) {
-        notifyConnectionError('Layer already has an incoming connection');
-        return;
-      }
-
       // Validate shape compatibility
       const validation = validateConnection(sourceLayer, targetLayer);
 
@@ -91,11 +100,18 @@ export default function Playground() {
         return;
       }
 
-      // Add the edge
-      const edgeId = `${source}-${target}`;
-      addEdge({ id: edgeId, source, target });
+      // Add the new edge
+      const handleKey = (handle?: string | null) => handle ?? 'default';
+      const edgeId = `${source}:${handleKey(connection.sourceHandle)}->${target}:${handleKey(connection.targetHandle)}`;
+      addEdge({
+        id: edgeId,
+        source,
+        target,
+        sourceHandle: connection.sourceHandle ?? null,
+        targetHandle: connection.targetHandle ?? null,
+      });
     },
-    [layers, edges, addEdge]
+    [layers, addEdge]
   );
 
   const onEdgesChange = useCallback(
@@ -138,35 +154,58 @@ export default function Playground() {
       const raw = event.dataTransfer.getData('application/layer-template')
       if (!raw) return
 
-      try {
-        const payload = JSON.parse(raw) as {
-          kind: 'Dense'
-          params: { units: number; activation: ActivationType }
-        }
+      type LayerTemplatePayload =
+        | { kind: 'Dense'; params: { units: number; activation: ActivationType } }
+        | {
+            kind: 'Convolution'
+            params: {
+              filters: number
+              kernel: number
+              stride: number
+              padding: 'valid' | 'same'
+              activation: Exclude<ActivationType, 'softmax'>
+            }
+          }
 
-        if (payload.kind !== 'Dense') return
+      try {
+        const payload = JSON.parse(raw) as LayerTemplatePayload
 
         const position = reactFlowInstance.screenToFlowPosition({
           x: event.clientX,
           y: event.clientY,
         })
 
-        const getId = () => {
+        const getId = (prefix: string) => {
           if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-            return `dense-${crypto.randomUUID()}`
+            return `${prefix}-${crypto.randomUUID()}`
           }
-          return `dense-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+          return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
         }
 
-        addLayer({
-          id: getId(),
-          kind: 'Dense',
-          params: {
-            units: payload.params.units,
-            activation: payload.params.activation,
-          },
-          position,
-        })
+        if (payload.kind === 'Dense') {
+          addLayer({
+            id: getId('dense'),
+            kind: 'Dense',
+            params: {
+              units: payload.params.units,
+              activation: payload.params.activation,
+            },
+            position,
+          })
+        } else if (payload.kind === 'Convolution') {
+          addLayer({
+            id: getId('conv'),
+            kind: 'Convolution',
+            params: {
+              filters: payload.params.filters,
+              kernel: payload.params.kernel,
+              stride: payload.params.stride,
+              padding: payload.params.padding,
+              activation: payload.params.activation,
+            },
+            position,
+          })
+        }
       } catch (error) {
         console.error('Failed to add layer from drag-and-drop', error)
       }

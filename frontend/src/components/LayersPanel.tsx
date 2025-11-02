@@ -1,25 +1,94 @@
 import type { DragEvent } from 'react'
+import type { ActivationType } from '@/types/graph'
 
-const DENSE_LAYER_TEMPLATE = {
+type DenseTemplate = {
+  id: string
+  label: string
+  description: string
+  kind: 'Dense'
+  params: {
+    units: number
+    activation: ActivationType
+  }
+}
+
+type ConvTemplate = {
+  id: string
+  label: string
+  description: string
+  kind: 'Convolution'
+  params: {
+    filters: number
+    kernel: number
+    stride: number
+    padding: 'valid' | 'same'
+    activation: Exclude<ActivationType, 'softmax'>
+  }
+}
+
+type LayerTemplate = DenseTemplate | ConvTemplate
+
+const TEMPLATE_STYLES: Record<
+  LayerTemplate['kind'],
+  {
+    border: string
+    background: string
+    hover: string
+    label: string
+    description: string
+  }
+> = {
+  Dense: {
+    border: 'border-blue-300',
+    background: 'bg-blue-50',
+    hover: 'hover:bg-blue-100',
+    label: 'text-blue-700',
+    description: 'text-blue-600',
+  },
+  Convolution: {
+    border: 'border-indigo-300',
+    background: 'bg-indigo-50',
+    hover: 'hover:bg-indigo-100',
+    label: 'text-indigo-700',
+    description: 'text-indigo-600',
+  },
+}
+
+const DENSE_LAYER_TEMPLATE: DenseTemplate = {
   id: 'dense-layer',
   label: 'Dense Layer',
   description: 'Default 64 units · ReLU',
-  units: 64,
-  activation: 'relu' as const,
+  kind: 'Dense',
+  params: {
+    units: 64,
+    activation: 'relu',
+  },
 }
 
-function handleDragStart() {
-  const template = DENSE_LAYER_TEMPLATE
+const CONV_LAYER_TEMPLATE: ConvTemplate = {
+  id: 'conv-layer',
+  label: 'Conv Layer',
+  description: '32 filters · 3×3 · ReLU',
+  kind: 'Convolution',
+  params: {
+    filters: 32,
+    kernel: 3,
+    stride: 1,
+    padding: 'same',
+    activation: 'relu',
+  },
+}
+
+const LAYER_TEMPLATES: LayerTemplate[] = [DENSE_LAYER_TEMPLATE, CONV_LAYER_TEMPLATE]
+
+function createDragStartHandler(template: LayerTemplate) {
   return (event: DragEvent<HTMLDivElement>) => {
     event.dataTransfer.effectAllowed = 'copy'
     event.dataTransfer.setData(
       'application/layer-template',
       JSON.stringify({
-        kind: 'Dense',
-        params: {
-          units: template.units,
-          activation: template.activation,
-        },
+        kind: template.kind,
+        params: template.params,
       })
     )
   }
@@ -33,17 +102,22 @@ export function LayersPanel({ className }: { className?: string }) {
       </div>
       <div className="p-4 flex flex-col gap-3 min-w-[280px]">
         <p className="text-xs text-gray-500">
-          Drag the preset below onto the canvas, then adjust units or activation inline.
+          Drag a preset onto the canvas, then tune the settings inline.
         </p>
-        <div
-          key={DENSE_LAYER_TEMPLATE.id}
-          draggable
-          onDragStart={handleDragStart()}
-          className="border border-dashed border-blue-300 rounded-lg px-3 py-2 bg-blue-50 hover:bg-blue-100 cursor-grab active:cursor-grabbing transition-colors"
-        >
-          <div className="text-sm font-semibold text-blue-700">{DENSE_LAYER_TEMPLATE.label}</div>
-          <div className="text-xs text-blue-600">{DENSE_LAYER_TEMPLATE.description}</div>
-        </div>
+        {LAYER_TEMPLATES.map((template) => {
+          const style = TEMPLATE_STYLES[template.kind]
+          return (
+            <div
+              key={template.id}
+              draggable
+              onDragStart={createDragStartHandler(template)}
+              className={`border border-dashed ${style.border} rounded-lg px-3 py-2 ${style.background} ${style.hover} cursor-grab active:cursor-grabbing transition-colors`}
+            >
+              <div className={`text-sm font-semibold ${style.label}`}>{template.label}</div>
+              <div className={`text-xs ${style.description}`}>{template.description}</div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

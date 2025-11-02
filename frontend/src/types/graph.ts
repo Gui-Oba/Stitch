@@ -3,7 +3,7 @@ export type TensorShape =
   | { type: 'vector'; size: number }
   | { type: 'unknown' };
 
-export type LayerKind = 'Input' | 'Dense' | 'Output';
+export type LayerKind = 'Input' | 'Dense' | 'Convolution' | 'Output';
 
 export type ActivationType = 'relu' | 'sigmoid' | 'tanh' | 'softmax' | 'none';
 
@@ -36,6 +36,17 @@ export interface DenseLayer extends Layer {
   };
 }
 
+export interface ConvLayer extends Layer {
+  kind: 'Convolution';
+  params: {
+    filters: number;
+    kernel: number;
+    stride: number;
+    padding: 'valid' | 'same';
+    activation: Exclude<ActivationType, 'softmax'>;
+  };
+}
+
 export interface OutputLayer extends Layer {
   kind: 'Output';
   params: {
@@ -44,13 +55,15 @@ export interface OutputLayer extends Layer {
   };
 }
 
-export type AnyLayer = InputLayer | DenseLayer | OutputLayer;
+export type AnyLayer = InputLayer | DenseLayer | ConvLayer | OutputLayer;
 
 // Edge with shape label
 export interface GraphEdge {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
   label?: string;
 }
 
@@ -67,6 +80,12 @@ export function calculateParams(layer: AnyLayer, inputShape?: TensorShape): numb
     const weights = inputShape.size * layer.params.units;
     const useBias = layer.params.use_bias ?? true;
     const bias = useBias ? layer.params.units : 0;
+    return weights + bias;
+  }
+  if (layer.kind === 'Convolution' && inputShape?.type === 'vector') {
+    const kernelArea = Math.max(1, layer.params.kernel) ** 2;
+    const weights = kernelArea * inputShape.size * layer.params.filters;
+    const bias = layer.params.filters;
     return weights + bias;
   }
   return 0;

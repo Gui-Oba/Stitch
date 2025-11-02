@@ -28,6 +28,12 @@ function computeOutputShape(layer: AnyLayer, inputShape?: TensorShape): TensorSh
       }
       return { type: 'unknown' }
 
+    case 'Convolution':
+      if (inputShape?.type === 'vector') {
+        return { type: 'vector', size: layer.params.filters }
+      }
+      return { type: 'unknown' }
+
     case 'Output':
       if (inputShape?.type === 'vector') {
         return { type: 'vector', size: layer.params.classes }
@@ -87,9 +93,25 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   addEdge: (edge) => {
-    set((state) => ({
-      edges: [...state.edges, edge]
-    }))
+    const normalizeHandle = (handle?: string | null) => handle ?? null
+
+    set((state) => {
+      const nextEdges = state.edges.filter((existing) => {
+        const sameSourcePort =
+          existing.source === edge.source &&
+          normalizeHandle(existing.sourceHandle) === normalizeHandle(edge.sourceHandle)
+
+        const sameTargetPort =
+          existing.target === edge.target &&
+          normalizeHandle(existing.targetHandle) === normalizeHandle(edge.targetHandle)
+
+        return !sameSourcePort && !sameTargetPort
+      })
+
+      return {
+        edges: [...nextEdges, edge] as GraphEdge[]
+      }
+    })
     get().recomputeShapes()
   },
 
@@ -160,6 +182,30 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 }))
 
 // Convert graph to backend architecture format
+type VectorShapeState = { kind: 'vector'; size: number }
+type ImageShapeState = { kind: 'image'; channels: number; height: number; width: number }
+type ShapeState = VectorShapeState | ImageShapeState
+
+function inferImageShapeFromSize(size: number): ImageShapeState | undefined {
+  const side = Math.round(Math.sqrt(size))
+  if (side * side !== size) return undefined
+  return { kind: 'image', channels: 1, height: side, width: side }
+}
+
+function ensureFlattenLayer(state: ShapeState, layers: any[]): VectorShapeState {
+  if (state.kind === 'vector') return state
+  const flattenedSize = state.channels * state.height * state.width
+  layers.push({ type: 'flatten' })
+  return { kind: 'vector', size: flattenedSize }
+}
+
+function computeConvOutputDim(input: number, kernel: number, stride: number, padding: 'same' | 'valid'): number {
+  if (padding === 'same') {
+    return Math.ceil(input / stride)
+  }
+  return Math.max(1, Math.floor((input - kernel) / stride + 1))
+}
+
 export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: GraphEdge[]) {
   // Build adjacency map for graph traversal
   const adjacency = new Map<string, string>()
@@ -176,47 +222,87 @@ export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: Gra
     throw new Error('No input layer found')
   }
 
-  const input_size = inputLayer.params.size
+  const inputSize = inputLayer.params.size
+  const initialImageShape = inferImageShapeFromSize(inputSize)
+  let currentShape: ShapeState = initialImageShape ?? { kind: 'vector', size: inputSize }
   const backendLayers: any[] = []
 
   // Traverse graph in topological order starting from input
   let currentId: string | undefined = inputLayer.id
-  let prevSize = input_size
 
   while (currentId) {
     const layer = layers[currentId]
     if (!layer) break
 
-    // Convert layer to backend format
-    if (layer.kind === 'Dense') {
+    if (layer.kind === 'Input') {
+      // Skip adding the input layer itself; move to next
+    } else if (layer.kind === 'Dense') {
+      currentShape = ensureFlattenLayer(currentShape, backendLayers)
       const units = layer.params.units
+      const inputDim = currentShape.size
       backendLayers.push({
         type: 'linear',
-        in: prevSize,
+        in: inputDim,
         out: units,
       })
 
-      // Add activation if not 'none'
       const activation = layer.params.activation
       if (activation && activation !== 'none') {
         backendLayers.push({ type: activation })
       }
 
-      prevSize = units
+      currentShape = { kind: 'vector', size: units }
+    } else if (layer.kind === 'Convolution') {
+      if (currentShape.kind === 'vector') {
+        const inferred = inferImageShapeFromSize(currentShape.size)
+        if (!inferred) {
+          throw new Error('Cannot infer image shape for convolution layer input')
+        }
+        currentShape = inferred
+      }
+
+      const { filters, kernel, stride, padding, activation } = layer.params
+      const strideValue = Math.max(1, stride)
+      const paddingMode: 'same' | 'valid' = padding === 'same' ? 'same' : 'valid'
+
+      backendLayers.push({
+        type: 'conv2d',
+        in_channels: currentShape.channels,
+        out_channels: filters,
+        kernel_size: kernel,
+        stride: strideValue,
+        padding: paddingMode,
+      })
+
+      if (activation && activation !== 'none') {
+        backendLayers.push({ type: activation })
+      }
+
+      const nextHeight = computeConvOutputDim(currentShape.height, kernel, strideValue, paddingMode)
+      const nextWidth = computeConvOutputDim(currentShape.width, kernel, strideValue, paddingMode)
+
+      currentShape = {
+        kind: 'image',
+        channels: filters,
+        height: nextHeight,
+        width: nextWidth,
+      }
     } else if (layer.kind === 'Output') {
+      currentShape = ensureFlattenLayer(currentShape, backendLayers)
+
       const classes = layer.params.classes
+      const inputDim = currentShape.size
       backendLayers.push({
         type: 'linear',
-        in: prevSize,
+        in: inputDim,
         out: classes,
       })
 
-      // Add softmax activation
       if (layer.params.activation === 'softmax') {
         backendLayers.push({ type: 'softmax' })
       }
 
-      prevSize = classes
+      currentShape = { kind: 'vector', size: classes }
     }
 
     // Move to next connected layer
@@ -224,8 +310,16 @@ export function graphToArchitecture(layers: Record<string, AnyLayer>, edges: Gra
     currentId = nextEdge?.target
   }
 
-  return {
-    input_size,
+  const architecture: Record<string, any> = {
+    input_size: inputSize,
     layers: backendLayers,
   }
+
+  if (initialImageShape) {
+    architecture.input_channels = initialImageShape.channels
+    architecture.input_height = initialImageShape.height
+    architecture.input_width = initialImageShape.width
+  }
+
+  return architecture
 }
