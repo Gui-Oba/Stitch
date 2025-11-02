@@ -32,6 +32,13 @@ export function validateConnection(
 
   const outputShape: TensorShape = shape;
 
+  if (sourceLayer.kind === 'Dense' && targetLayer.kind === 'Convolution') {
+    return {
+      valid: false,
+      error: 'A dense layer cannot output into the input of a conv layer',
+    };
+  }
+
   // Input layers cannot receive connections
   if (targetLayer.kind === 'Input') {
     return {

@@ -471,6 +471,55 @@ def _persist_model_weights(model_id: str, model: nn.Module) -> Path:
     return output_path
 
 
+def _collect_sample_predictions(model: nn.Module, data_loader, limit: int = 8):
+    samples = []
+    try:
+        device = next(model.parameters()).device
+    except StopIteration:
+        device = torch.device("cpu")
+
+    model.eval()
+
+    total_collected = 0
+    with torch.no_grad():
+        for inputs, targets in data_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            outputs = model(inputs)
+            probabilities = torch.softmax(outputs, dim=1)
+            predictions = probabilities.argmax(dim=1)
+
+            batch_size = inputs.size(0)
+            for idx in range(batch_size):
+                image_tensor = inputs[idx].detach().cpu()
+                if image_tensor.dim() == 3 and image_tensor.size(0) == 1:
+                    image_tensor = image_tensor.squeeze(0)
+                grid = (
+                    image_tensor.mul(255)
+                    .clamp(0, 255)
+                    .to(torch.uint8)
+                    .tolist()
+                )
+                confidence = float(
+                    probabilities[idx, predictions[idx]].detach().cpu().item()
+                )
+                samples.append(
+                    {
+                        "grid": grid,
+                        "label": int(targets[idx].detach().cpu().item()),
+                        "prediction": int(predictions[idx].detach().cpu().item()),
+                        "confidence": confidence,
+                    }
+                )
+                total_collected += 1
+                if total_collected >= limit:
+                    break
+            if total_collected >= limit:
+                break
+
+    return samples
+
+
 @app.route("/api/models/save", methods=["POST"])
 def save_trained_model():
     if not request.is_json:
@@ -597,6 +646,8 @@ def _start_training_thread(model_id, run_id, architecture, hyperparams):
                 on_checkpoint=on_checkpoint,
             )
 
+            sample_predictions = _collect_sample_predictions(model, val_loader, limit=8)
+
             # Save model weights to temporary location
             temp_model_id = run_id  # Use run_id for temporary storage
             output_path = _persist_model_weights(temp_model_id, model)
@@ -609,10 +660,18 @@ def _start_training_thread(model_id, run_id, architecture, hyperparams):
                     "test_accuracy": test_accuracy,
                     "completed_at": completed_at,
                     "saved_model_path": str(output_path),
+                    "sample_predictions": sample_predictions,
                 },
             )
 
-            emit("state", {"state": "succeeded", "test_accuracy": test_accuracy})
+            emit(
+                "state",
+                {
+                    "state": "succeeded",
+                    "test_accuracy": test_accuracy,
+                    "sample_predictions": sample_predictions,
+                },
+            )
         except Exception as exc:
             error_message = str(exc)
             logger.error(f"Training failed for run {run_id}: {error_message}")
@@ -687,6 +746,7 @@ def train_model():
             "hyperparams": hyperparams,
             "architecture": architecture,
             "saved_model_path": None,
+            "sample_predictions": [],
         },
     )
 

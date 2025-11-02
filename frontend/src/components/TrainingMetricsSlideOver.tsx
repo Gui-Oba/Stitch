@@ -17,7 +17,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import type { MetricData } from '@/api/types'
+import type { MetricData, MnistSample } from '@/api/types'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 
@@ -28,6 +28,7 @@ interface TrainingMetricsSlideOverProps {
   metrics: MetricData[]
   currentState: 'queued' | 'running' | 'succeeded' | 'failed' | null
   runId?: string
+  samplePredictions?: MnistSample[]
 }
 
 function formatTime(seconds: number): string {
@@ -44,11 +45,42 @@ export const TrainingMetricsSlideOver: FC<TrainingMetricsSlideOverProps> = ({
   metrics,
   currentState,
   runId,
+  samplePredictions = [],
 }) => {
   const latestMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null
   const [modelName, setModelName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [savedModelId, setSavedModelId] = useState<string | null>(null)
+  const hasSamplePredictions = samplePredictions.length > 0
+
+  const renderSampleGrid = (grid: number[][]) => (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: 'repeat(28, 1fr)',
+        gridAutoRows: '1fr',
+        width: '112px',
+        height: '112px',
+        gap: '0',
+      }}
+    >
+      {grid.map((row, rowIndex) =>
+        row.map((value, columnIndex) => {
+          const shade = Math.max(0, Math.min(255, value))
+          return (
+            <div
+              key={`${rowIndex}-${columnIndex}`}
+              style={{
+                backgroundColor: `rgb(${shade}, ${shade}, ${shade})`,
+                width: '100%',
+                height: '100%',
+              }}
+            />
+          )
+        })
+      )}
+    </div>
+  )
 
   const handleSaveModel = async () => {
     if (!runId || !modelName.trim()) return
@@ -176,8 +208,42 @@ export const TrainingMetricsSlideOver: FC<TrainingMetricsSlideOverProps> = ({
                         ? 'Queued'
                         : 'Idle'}
               </span>
-            </div>
           </div>
+          </div>
+
+          {/* Sample Predictions */}
+          {hasSamplePredictions && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">Sample Predictions</h3>
+              <p className="text-xs text-gray-500">
+                Eight validation samples, their true labels, and the model&apos;s predictions.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {samplePredictions.slice(0, 8).map((sample, index) => (
+                  <div
+                    key={`${sample.label}-${sample.prediction}-${index}`}
+                    className="flex flex-col items-center gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-sm"
+                  >
+                    {renderSampleGrid(sample.grid)}
+                    <div className="text-xs text-gray-700 text-center space-y-1">
+                      <div>
+                        <span className="font-semibold text-gray-900">True:</span> {sample.label}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-gray-900">Pred:</span> {sample.prediction}
+                      </div>
+                      {typeof sample.confidence === 'number' && (
+                        <div>
+                          <span className="font-semibold text-gray-900">Confidence:</span>{' '}
+                          {(sample.confidence * 100).toFixed(1)}%
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Progress */}
           {latestMetric && (

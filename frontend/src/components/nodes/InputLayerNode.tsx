@@ -1,12 +1,12 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { useGraphStore } from '../../store/graphStore';
-import type { InputLayer } from '../../types/graph';
-import { formatShape } from '../../types/graph';
+import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { useGraphStore } from '../../store/graphStore'
+import type { InputLayer } from '../../types/graph'
+import { formatShape } from '../../types/graph'
 
 export function InputLayerNode({ id }: NodeProps) {
-  const layer = useGraphStore(state => state.layers[id]) as InputLayer | undefined;
+  const layer = useGraphStore(state => state.layers[id]) as InputLayer | undefined
 
-  if (!layer) return null;
+  if (!layer) return null
 
   return (
     <div className="bg-red-50 border-2 border-red-500 rounded-lg shadow-lg min-w-[160px]">
@@ -31,7 +31,8 @@ export function InputLayerNode({ id }: NodeProps) {
         type="source"
         position={Position.Right}
         className="!bg-red-500 !w-3 !h-3 !border-2 !border-white"
+        style={{ top: '50%', right: '-10px', transform: 'translateY(-50%)' }}
       />
     </div>
-  );
+  )
 }

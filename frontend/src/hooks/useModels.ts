@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
-import type { MetricData } from "@/api/types";
+import type { MetricData, MnistSample } from "@/api/types";
 
 export type StoredLayer = {
   type: string
@@ -18,6 +18,7 @@ export type TrainingRun = {
   epoch?: number
   metrics: MetricData[]
   test_accuracy?: number
+  sample_predictions?: MnistSample[]
   created_at: string
   completed_at?: string
   error?: string
@@ -84,4 +85,3 @@ export function useModels() {
     }
   })
 }
-

@@ -16,13 +16,22 @@ export function ConvLayerNode({ id }: NodeProps) {
   const layer = useGraphStore((state) => state.layers[id]) as ConvLayer | undefined
   const inputShape = useGraphStore((state) => state.getInputShape(id))
   const updateLayerParams = useGraphStore((state) => state.updateLayerParams)
+  const removeLayer = useGraphStore((state) => state.removeLayer)
 
   if (!layer) return null
 
   const paramCount = calculateParams(layer, inputShape)
 
   return (
-    <div className="bg-indigo-50 border-2 border-indigo-500 rounded-lg shadow-lg min-w-[200px]">
+    <div className="relative bg-indigo-50 border-2 border-indigo-500 rounded-lg shadow-lg min-w-[180px]">
+      <button
+        type="button"
+        onClick={() => removeLayer(id)}
+        className="absolute -right-2 -top-2 w-6 h-6 flex items-center justify-center rounded-full bg-indigo-500 text-white text-xs font-bold shadow-md hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        aria-label="Remove convolution layer"
+      >
+        ×
+      </button>
       <Handle
         type="target"
         position={Position.Left}
@@ -43,7 +52,7 @@ export function ConvLayerNode({ id }: NodeProps) {
               updateLayerParams(id, { filters: Math.max(1, parseInt(e.target.value) || 1) })
             }
             min={1}
-            className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-16 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
 
@@ -58,7 +67,7 @@ export function ConvLayerNode({ id }: NodeProps) {
             min={1}
             className="w-16 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <span className="text-xs text-gray-500">× kernel</span>
+            <span className="text-xs text-gray-500">× {layer.params.kernel}</span>
         </div>
 
         <div className="flex items-center gap-2">

@@ -22,7 +22,7 @@ import { validateConnection, notifyConnectionError } from '@/lib/shapeInference'
 import { TrainingMetricsSlideOver } from '@/components/TrainingMetricsSlideOver'
 import { useTrainingMetrics } from '@/hooks/useTraining'
 import { LayersPanel } from '@/components/LayersPanel'
-import type { ActivationType, LayerKind } from '@/types/graph'
+import type { ActivationType, LayerKind, AnyLayer } from '@/types/graph'
 
 const nodeTypes: NodeTypes = {
   input: InputLayerNode,
@@ -38,6 +38,23 @@ const layerKindToNodeType: Record<LayerKind, keyof typeof nodeTypes> = {
   Output: 'output',
 }
 
+const layerIdPrefixes: Record<LayerKind, string> = {
+  Input: 'input',
+  Dense: 'dense',
+  Convolution: 'conv',
+  Output: 'output',
+}
+
+const duplicableLayerKinds = new Set<LayerKind>(['Dense', 'Convolution'])
+
+function generateLayerId(kind: LayerKind) {
+  const prefix = layerIdPrefixes[kind]
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`
+  }
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+}
+
 export default function Playground() {
   const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer } = useGraphStore()
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
@@ -47,8 +64,17 @@ export default function Playground() {
     currentState,
     isTraining,
     runId,
+    samplePredictions,
     startTraining,
   } = useTrainingMetrics()
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+  const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([])
+  const [copiedLayer, setCopiedLayer] = useState<{
+    kind: LayerKind
+    params: Record<string, any>
+    basePosition: { x: number; y: number } | null
+    offset: number
+  } | null>(null)
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -175,16 +201,9 @@ export default function Playground() {
           y: event.clientY,
         })
 
-        const getId = (prefix: string) => {
-          if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-            return `${prefix}-${crypto.randomUUID()}`
-          }
-          return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-        }
-
         if (payload.kind === 'Dense') {
           addLayer({
-            id: getId('dense'),
+            id: generateLayerId('Dense'),
             kind: 'Dense',
             params: {
               units: payload.params.units,
@@ -194,7 +213,7 @@ export default function Playground() {
           })
         } else if (payload.kind === 'Convolution') {
           addLayer({
-            id: getId('conv'),
+            id: generateLayerId('Convolution'),
             kind: 'Convolution',
             params: {
               filters: payload.params.filters,
@@ -212,6 +231,86 @@ export default function Playground() {
     },
     [addLayer, reactFlowInstance]
   )
+
+  const onSelectionChange = useCallback((params: { nodes: Node[]; edges: Edge[] }) => {
+    setSelectedNodeIds(params.nodes.map((node) => node.id))
+    setSelectedEdgeIds(params.edges.map((edge) => edge.id))
+  }, [])
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null
+      if (target) {
+        const tagName = target.tagName
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable) {
+          return
+        }
+      }
+
+      const isCopy = (event.key === 'c' || event.key === 'C') && (event.ctrlKey || event.metaKey)
+      const isPaste = (event.key === 'v' || event.key === 'V') && (event.ctrlKey || event.metaKey)
+      const isDeleteKey = event.key === 'Delete' || event.key === 'Backspace'
+
+      if (isCopy) {
+        if (selectedNodeIds.length === 1) {
+          const layer = layers[selectedNodeIds[0]] as AnyLayer | undefined
+          if (layer && duplicableLayerKinds.has(layer.kind)) {
+            setCopiedLayer({
+              kind: layer.kind,
+              params: JSON.parse(JSON.stringify(layer.params)),
+              basePosition: layer.position ? { ...layer.position } : null,
+              offset: 1,
+            })
+            event.preventDefault()
+          }
+        }
+        return
+      }
+
+      if (isPaste) {
+        if (copiedLayer && duplicableLayerKinds.has(copiedLayer.kind)) {
+          const base = copiedLayer.basePosition ?? { x: 100, y: 100 }
+          const offsetDistance = 30 * copiedLayer.offset
+          const position = {
+            x: base.x + offsetDistance,
+            y: base.y + offsetDistance,
+          }
+          const newId = generateLayerId(copiedLayer.kind)
+
+          addLayer({
+            id: newId,
+            kind: copiedLayer.kind,
+            params: JSON.parse(JSON.stringify(copiedLayer.params)),
+            position,
+          })
+
+          setCopiedLayer((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  offset: prev.offset + 1,
+                }
+              : prev
+          )
+          event.preventDefault()
+        }
+        return
+      }
+
+      if (isDeleteKey) {
+        if (selectedNodeIds.length > 0 || selectedEdgeIds.length > 0) {
+          event.preventDefault()
+          selectedNodeIds.forEach((id) => removeLayer(id))
+          selectedEdgeIds.forEach((id) => removeEdge(id))
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [selectedNodeIds, selectedEdgeIds, layers, copiedLayer, addLayer, removeLayer, removeEdge])
 
   // Add sample layers on mount with positions
   useEffect(() => {
@@ -324,10 +423,13 @@ export default function Playground() {
             nodes={reactFlowNodes}
             edges={reactFlowEdges}
             onConnect={onConnect}
-            onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodesChange={onNodesChange}
+            onSelectionChange={onSelectionChange}
             onDrop={onDrop}
             onDragOver={onDragOver}
+            nodesDraggable={!isTraining}
+            nodesConnectable={!isTraining}
             nodeTypes={nodeTypes}
             fitView
             snapToGrid
@@ -348,6 +450,7 @@ export default function Playground() {
         metrics={metrics}
         currentState={currentState}
         runId={runId}
+        samplePredictions={samplePredictions}
       />
 
 

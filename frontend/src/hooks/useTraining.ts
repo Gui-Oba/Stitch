@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { startTraining, subscribeToTrainingEvents } from '@/api/training'
-import type { TrainingRequest, MetricData, TrainingState } from '@/api/types'
+import type { TrainingRequest, MetricData, TrainingState, MnistSample } from '@/api/types'
 import { toast } from 'sonner'
 
 export function useStartTraining() {
@@ -21,6 +21,7 @@ interface UseTrainingMetricsReturn {
   isTraining: boolean
   runId: string | undefined
   testAccuracy: number | undefined
+  samplePredictions: MnistSample[]
   startTraining: (request: TrainingRequest) => void
   resetMetrics: () => void
 }
@@ -31,6 +32,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
   const [isTraining, setIsTraining] = useState(false)
   const [runId, setRunId] = useState<string | undefined>(undefined)
   const [testAccuracy, setTestAccuracy] = useState<number | undefined>(undefined)
+  const [samplePredictions, setSamplePredictions] = useState<MnistSample[]>([])
   const eventSourceCleanupRef = useRef<(() => void) | null>(null)
 
   const startTrainingMutation = useStartTraining()
@@ -39,6 +41,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
     setMetrics([])
     setCurrentState(null)
     setTestAccuracy(undefined)
+    setSamplePredictions([])
   }, [])
 
   const handleStartTraining = useCallback(
@@ -50,6 +53,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
 
       setIsTraining(true)
       resetMetrics()
+      setSamplePredictions([])
 
       startTrainingMutation.mutate(request, {
         onSuccess: (data) => {
@@ -72,6 +76,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
 
               if (stateData.state === 'succeeded') {
                 setTestAccuracy(stateData.test_accuracy)
+                setSamplePredictions(stateData.sample_predictions ?? [])
                 toast.success('Training completed!', {
                   description: stateData.test_accuracy
                     ? `Test accuracy: ${(stateData.test_accuracy * 100).toFixed(2)}%`
@@ -82,6 +87,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
                 toast.error('Training failed', {
                   description: stateData.error || 'Unknown error',
                 })
+                setSamplePredictions([])
                 setIsTraining(false)
               }
             },
@@ -119,6 +125,7 @@ export function useTrainingMetrics(): UseTrainingMetricsReturn {
     isTraining,
     runId,
     testAccuracy,
+    samplePredictions,
     startTraining: handleStartTraining,
     resetMetrics,
   }

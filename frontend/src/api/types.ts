@@ -11,10 +11,18 @@ export interface MetricData {
   eta_seconds?: number
 }
 
+export interface MnistSample {
+  grid: number[][]
+  label: number
+  prediction: number
+  confidence?: number
+}
+
 export interface TrainingState {
   state: 'queued' | 'running' | 'succeeded' | 'failed'
   error?: string
   test_accuracy?: number
+  sample_predictions?: MnistSample[]
 }
 
 export interface TrainingRequest {
