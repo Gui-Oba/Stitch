@@ -25,7 +25,9 @@ def validate_architecture(payload):
     try:
         input_size = int(input_size)
     except (TypeError, ValueError) as exc:
-        raise ValueError("`architecture.input_size` must be convertible to int.") from exc
+        raise ValueError(
+            "`architecture.input_size` must be convertible to int."
+        ) from exc
 
     sanitized_layers = []
     prev_out = input_size
@@ -107,7 +109,9 @@ def validate_hyperparams(payload):
         result["optimizer"] = merged_optimizer
 
     opt_cfg = result["optimizer"]
-    opt_cfg["type"] = str(opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])).lower()
+    opt_cfg["type"] = str(
+        opt_cfg.get("type", DEFAULT_HYPERPARAMS["optimizer"]["type"])
+    ).lower()
     if "lr" in opt_cfg:
         try:
             opt_cfg["lr"] = float(opt_cfg["lr"])
@@ -118,7 +122,9 @@ def validate_hyperparams(payload):
             try:
                 opt_cfg["momentum"] = float(opt_cfg["momentum"])
             except (TypeError, ValueError):
-                opt_cfg["momentum"] = float(DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0))
+                opt_cfg["momentum"] = float(
+                    DEFAULT_HYPERPARAMS["optimizer"].get("momentum", 0.0)
+                )
     elif opt_cfg["type"] == "adam":
         for key, fallback in [("beta1", 0.9), ("beta2", 0.999), ("eps", 1e-8)]:
             if key in opt_cfg:
