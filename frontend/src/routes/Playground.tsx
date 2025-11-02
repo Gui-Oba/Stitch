@@ -17,17 +17,26 @@ import { InputLayerNode } from '@/components/nodes/InputLayerNode'
 import { DenseLayerNode } from '@/components/nodes/DenseLayerNode'
 import { ConvLayerNode } from '@/components/nodes/ConvLayerNode'
 import { OutputLayerNode } from '@/components/nodes/OutputLayerNode'
+import { PoolingLayerNode } from '@/components/nodes/PoolingLayerNode'
+import { FlattenLayerNode } from '@/components/nodes/FlattenLayerNode'
+import { DropoutLayerNode } from '@/components/nodes/DropoutLayerNode'
 import { HyperparamsPanel, type Hyperparams, DEFAULT_HYPERPARAMS } from '@/components/HyperparamsPanel'
 import { validateConnection, notifyConnectionError } from '@/lib/shapeInference'
 import { TrainingMetricsSlideOver } from '@/components/TrainingMetricsSlideOver'
 import { useTrainingMetrics } from '@/hooks/useTraining'
 import { LayersPanel } from '@/components/LayersPanel'
 import type { ActivationType, LayerKind, AnyLayer } from '@/types/graph'
+import { ChatbotPanel } from '@/components/ChatbotPanel'
+import { SchemaProposalPreview } from '@/components/SchemaProposalPreview'
+import { useChat } from '@/hooks/useChat'
 
 const nodeTypes: NodeTypes = {
   input: InputLayerNode,
   dense: DenseLayerNode,
   conv: ConvLayerNode,
+  pool: PoolingLayerNode,
+  flatten: FlattenLayerNode,
+  dropout: DropoutLayerNode,
   output: OutputLayerNode,
 };
 
@@ -35,6 +44,9 @@ const layerKindToNodeType: Record<LayerKind, keyof typeof nodeTypes> = {
   Input: 'input',
   Dense: 'dense',
   Convolution: 'conv',
+  Pooling: 'pool',
+  Flatten: 'flatten',
+  Dropout: 'dropout',
   Output: 'output',
 }
 
@@ -42,10 +54,13 @@ const layerIdPrefixes: Record<LayerKind, string> = {
   Input: 'input',
   Dense: 'dense',
   Convolution: 'conv',
+  Pooling: 'pool',
+  Flatten: 'flatten',
+  Dropout: 'dropout',
   Output: 'output',
 }
 
-const duplicableLayerKinds = new Set<LayerKind>(['Dense', 'Convolution'])
+const duplicableLayerKinds = new Set<LayerKind>(['Dense', 'Convolution', 'Pooling', 'Dropout'])
 
 function generateLayerId(kind: LayerKind) {
   const prefix = layerIdPrefixes[kind]
@@ -56,9 +71,10 @@ function generateLayerId(kind: LayerKind) {
 }
 
 export default function Playground() {
-  const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer } = useGraphStore()
+  const { layers, edges, addLayer, addEdge, removeEdge, updateLayerPosition, removeLayer, applyProposedSchema } = useGraphStore()
   const [hyperparams, setHyperparams] = useState<Hyperparams>(DEFAULT_HYPERPARAMS)
   const [metricsSlideOverOpen, setMetricsSlideOverOpen] = useState(false)
+  const [showProposalPreview, setShowProposalPreview] = useState(false)
   const {
     metrics,
     currentState,
@@ -75,6 +91,7 @@ export default function Playground() {
     basePosition: { x: number; y: number } | null
     offset: number
   } | null>(null)
+  const { messages, isStreaming, isGeneratingSchema, proposedSchema, sendMessage, clearProposedSchema } = useChat()
 
   // Convert store state to ReactFlow format with auto-layout
   const reactFlowNodes = useMemo((): Node[] => {
@@ -106,8 +123,6 @@ export default function Playground() {
     }));
   }, [edges]);
 
-
-  // Handle new connections with validation
   const onConnect = useCallback(
     (connection: Connection) => {
       const { source, target } = connection;
@@ -118,7 +133,6 @@ export default function Playground() {
 
       if (!sourceLayer || !targetLayer) return;
 
-      // Validate shape compatibility
       const validation = validateConnection(sourceLayer, targetLayer);
 
       if (!validation.valid) {
@@ -126,7 +140,6 @@ export default function Playground() {
         return;
       }
 
-      // Add the new edge
       const handleKey = (handle?: string | null) => handle ?? 'default';
       const edgeId = `${source}:${handleKey(connection.sourceHandle)}->${target}:${handleKey(connection.targetHandle)}`;
       addEdge({
@@ -183,15 +196,15 @@ export default function Playground() {
       type LayerTemplatePayload =
         | { kind: 'Dense'; params: { units: number; activation: ActivationType } }
         | {
-            kind: 'Convolution'
-            params: {
-              filters: number
-              kernel: number
-              stride: number
-              padding: 'valid' | 'same'
-              activation: Exclude<ActivationType, 'softmax'>
-            }
+          kind: 'Convolution'
+          params: {
+            filters: number
+            kernel: number
+            stride: number
+            padding: 'valid' | 'same'
+            activation: Exclude<ActivationType, 'softmax'>
           }
+        }
 
       try {
         const payload = JSON.parse(raw) as LayerTemplatePayload
@@ -226,12 +239,10 @@ export default function Playground() {
           })
         }
       } catch (error) {
-        console.error('Failed to add layer from drag-and-drop', error)
       }
     },
     [addLayer, reactFlowInstance]
   )
-
   const onSelectionChange = useCallback((params: { nodes: Node[]; edges: Edge[] }) => {
     setSelectedNodeIds(params.nodes.map((node) => node.id))
     setSelectedEdgeIds(params.edges.map((edge) => edge.id))
@@ -287,9 +298,9 @@ export default function Playground() {
           setCopiedLayer((prev) =>
             prev
               ? {
-                  ...prev,
-                  offset: prev.offset + 1,
-                }
+                ...prev,
+                offset: prev.offset + 1,
+              }
               : prev
           )
           event.preventDefault()
@@ -312,42 +323,80 @@ export default function Playground() {
     }
   }, [selectedNodeIds, selectedEdgeIds, layers, copiedLayer, addLayer, removeLayer, removeEdge])
 
-  // Add sample layers on mount with positions
   useEffect(() => {
-    // Only initialize if no layers exist
     if (Object.keys(layers).length === 0) {
       addLayer({
         id: 'input-1',
         kind: 'Input',
-        params: { size: 784 },
+        params: { size: 784, channels: 1, height: 28, width: 28 },
         position: { x: 50, y: 200 },
+      })
+
+      addLayer({
+        id: 'conv-1',
+        kind: 'Convolution',
+        params: { filters: 32, kernel: 3, stride: 1, padding: 'same', activation: 'relu' },
+        position: { x: 250, y: 200 },
+      })
+
+      addLayer({
+        id: 'pool-1',
+        kind: 'Pooling',
+        params: { type: 'max', pool_size: 2, stride: 2, padding: 0 },
+        position: { x: 450, y: 200 },
+      })
+
+      addLayer({
+        id: 'conv-2',
+        kind: 'Convolution',
+        params: { filters: 64, kernel: 3, stride: 1, padding: 'same', activation: 'relu' },
+        position: { x: 650, y: 200 },
+      })
+
+      addLayer({
+        id: 'pool-2',
+        kind: 'Pooling',
+        params: { type: 'max', pool_size: 2, stride: 2, padding: 0 },
+        position: { x: 850, y: 200 },
+      })
+
+      addLayer({
+        id: 'flatten-1',
+        kind: 'Flatten',
+        params: {},
+        position: { x: 1050, y: 200 },
       })
 
       addLayer({
         id: 'dense-1',
         kind: 'Dense',
         params: { units: 128, activation: 'relu' },
-        position: { x: 300, y: 200 },
+        position: { x: 1250, y: 200 },
       })
 
       addLayer({
-        id: 'dense-2',
-        kind: 'Dense',
-        params: { units: 64, activation: 'relu' },
-        position: { x: 550, y: 200 },
+        id: 'dropout-1',
+        kind: 'Dropout',
+        params: { rate: 0.5 },
+        position: { x: 1450, y: 200 },
       })
 
       addLayer({
         id: 'output-1',
         kind: 'Output',
         params: { classes: 10, activation: 'softmax' },
-        position: { x: 800, y: 200 },
+        position: { x: 1650, y: 200 },
       })
 
       // Connect the layers
-      addEdge({ id: 'input-1-dense-1', source: 'input-1', target: 'dense-1' })
-      addEdge({ id: 'dense-1-dense-2', source: 'dense-1', target: 'dense-2' })
-      addEdge({ id: 'dense-2-output-1', source: 'dense-2', target: 'output-1' })
+      addEdge({ id: 'input-1-conv-1', source: 'input-1', target: 'conv-1' })
+      addEdge({ id: 'conv-1-pool-1', source: 'conv-1', target: 'pool-1' })
+      addEdge({ id: 'pool-1-conv-2', source: 'pool-1', target: 'conv-2' })
+      addEdge({ id: 'conv-2-pool-2', source: 'conv-2', target: 'pool-2' })
+      addEdge({ id: 'pool-2-flatten-1', source: 'pool-2', target: 'flatten-1' })
+      addEdge({ id: 'flatten-1-dense-1', source: 'flatten-1', target: 'dense-1' })
+      addEdge({ id: 'dense-1-dropout-1', source: 'dense-1', target: 'dropout-1' })
+      addEdge({ id: 'dropout-1-output-1', source: 'dropout-1', target: 'output-1' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -370,6 +419,21 @@ export default function Playground() {
       console.error('❌ Training error:', error)
     }
   }, [layers, edges, hyperparams, startTraining])
+
+  const handleApplyProposal = useCallback(() => {
+    if (proposedSchema) {
+      console.log('Applying proposed schema:', proposedSchema)
+      applyProposedSchema(proposedSchema)
+      setShowProposalPreview(false)
+      clearProposedSchema()
+    }
+  }, [proposedSchema, applyProposedSchema, clearProposedSchema])
+
+  const handleRejectProposal = useCallback(() => {
+    setShowProposalPreview(false)
+    clearProposedSchema()
+  }, [clearProposedSchema])
+
   return (
     <>
       <div style={{ width: '100vw', height: 'calc(100vh - 4rem)', position: 'relative' }}>
@@ -453,7 +517,25 @@ export default function Playground() {
         samplePredictions={samplePredictions}
       />
 
+      <ChatbotPanel
+        onViewProposal={() => setShowProposalPreview(true)}
+        messages={messages}
+        isStreaming={isStreaming}
+        isGeneratingSchema={isGeneratingSchema}
+        proposedSchema={proposedSchema}
+        sendMessage={sendMessage}
+      />
 
+      {showProposalPreview && proposedSchema && (
+        <SchemaProposalPreview
+          currentLayers={layers}
+          currentEdges={edges}
+          proposedLayers={proposedSchema.layers}
+          proposedEdges={proposedSchema.edges}
+          onApply={handleApplyProposal}
+          onReject={handleRejectProposal}
+        />
+      )}
     </>
   )
 }

@@ -56,9 +56,23 @@ export default function Models() {
 
   if (models?.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-8 text-gray-600 shadow-sm">
-        <p>No models saved yet. Train a network in the Playground to populate this list.</p>
-      </div>
+
+      <main className="min-h-[calc(100vh-4rem)] bg-gray-50 py-10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-semibold text-gray-900">Models</h1>
+            <p className="text-sm text-gray-600">
+              Every training run creates a snapshot of the architecture and hyperparameters you used. Review them here
+              before jumping back into the arena.
+            </p>
+          </header>
+          <div>
+            <div className="rounded-xl border border-gray-200 bg-white p-8 text-gray-600 shadow-sm">
+              <p>No models saved yet. Train a network in the Playground to populate this list.</p>
+            </div>
+          </div>
+        </div>
+      </main>
     )
   }
 
