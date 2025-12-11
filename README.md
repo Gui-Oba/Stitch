@@ -4,8 +4,6 @@
 
 Stitch lets users drag and drop neural network components to build their own model for predicting handwritten digits. With simple buttons and menus, users can train their model on the MNIST dataset, view training performance over time, and test the model on their personally handdrawn input.
 
-![Stitch Demo](Stitch.png)
-
 Check out the [Devpost page](https://devpost.com/software/stitch-60vxhj)!
 
 ## At a Glance
