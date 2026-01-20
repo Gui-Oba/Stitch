@@ -9,7 +9,7 @@ Check out the [Devpost page](https://devpost.com/software/stitch-60vxhj)!
 ## At a Glance
 
 - **Frontend**: React 19 + Vite + Tailwind + React Flow for rich network visualizations.
-- **Backend**: FastAPI + PyTorch for model management, training, and inference.
+- **Backend**: Flask + PyTorch for model management, training, and inference.
 - **Storage**: Lightweight file system persistence (pickled PyTorch models plus JSON metadata).
 - **Tooling**: npm for front-end dependencies, pip for Python, and React Query for data fetching.
 
